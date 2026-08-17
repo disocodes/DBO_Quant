@@ -2,7 +2,7 @@
 
 For the GitHub repository, the recommended entry point is **`Databricks_OpenBB_Quant_Platform_Final.py`**. It is a Databricks **source notebook** and uses the checked-in `src/quant_platform/` package and `sql/quant_platform_schema.sql` directly.
 
-`Databricks_OpenBB_Quant_Platform_Final.ipynb` is a small convenience launcher that `%run`s the source notebook when both are kept in the same Databricks Git folder.
+`Databricks_OpenBB_Quant_Platform_Launcher.ipynb` is a small convenience launcher that `%run`s the source notebook when both are kept in the same Databricks Git folder. It intentionally has a different base name from the `.py` source notebook because Databricks Git folders can conflict when `.py` and `.ipynb` notebooks share the same base name.
 
 1. Add/clone this GitHub repository into a Databricks Git folder.
 2. Open `Databricks_OpenBB_Quant_Platform_Final.py` as a Databricks notebook.

@@ -1,0 +1,4 @@
+pandas>=2.2,<3
+numpy>=1.26
+databricks-sql-connector>=4,<5
+databricks-sdk>=0.50,<1

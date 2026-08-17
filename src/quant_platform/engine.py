@@ -87,7 +87,7 @@ def _rebalance_dates(index: pd.DatetimeIndex, frequency: str) -> pd.Series:
     marker = pd.Series(np.arange(len(index)), index=index)
     selected = marker.groupby(pd.Grouper(freq=rule)).tail(1).index
     s.loc[selected] = True
-    s.iloc[0] = True
+    s.iloc[0] = True  # establish an initial decision even when the first period end is later
     return s
 
 
@@ -156,6 +156,8 @@ def run_backtest(
     raw = raw.reindex(index=p.index, columns=p.columns)
     constrained = _enforce_constraints(raw, long_only, gross_leverage_limit)
 
+    # Decisions only occur on rebalance dates. Display targets are forward-filled, while
+    # execution targets remain sparse and are shifted one observation to enforce lag.
     rebalance_mask = _rebalance_dates(p.index, rebalance)
     decision_targets = constrained.where(rebalance_mask, np.nan)
     target = decision_targets.ffill().fillna(0.0)
@@ -180,6 +182,7 @@ def run_backtest(
         execute = execution_targets.loc[dt]
         if execute.notna().any():
             desired = execute.fillna(0.0).astype(float)
+            # One-way turnover convention: sum of absolute asset-weight changes.
             turnover.loc[dt] = float((desired - start_weights).abs().sum())
             start_weights = desired
 
@@ -200,6 +203,8 @@ def run_backtest(
         portfolio_value *= growth
         wealth.loc[dt] = portfolio_value
 
+        # Asset positions drift after returns. Trading costs are assumed to come from cash,
+        # so they reduce the denominator but do not change asset notionals directly.
         end_weights = start_weights.mul(1.0 + r).div(growth)
         end_weights = end_weights.replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
@@ -349,6 +354,7 @@ def cross_sectional_momentum(prices: pd.DataFrame, params: dict[str, Any]) -> pd
 def mean_reversion(prices: pd.DataFrame, params: dict[str, Any]) -> pd.DataFrame:
     lookback = int(params.get("lookback", 20))
     top_n = int(params.get("top_n", min(5, prices.shape[1])))
+    # Lower recent return = higher mean-reversion score.
     score = -prices.pct_change(lookback, fill_method=None)
     return scores_to_weights(score, top_n=top_n)
 

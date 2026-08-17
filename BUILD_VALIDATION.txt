@@ -1,0 +1,28 @@
+DBO_Quant — Repository Validation
+=================================
+
+Source bundle validation completed before publication:
+
+PASS  Quant engine unit tests: 7/7 passed
+PASS  Python source modules compiled successfully
+PASS  Databricks App source compiled successfully
+PASS  NVIDIA bridge source compiled successfully
+PASS  SQL schema present under sql/quant_platform_schema.sql
+PASS  Built wheel uploaded as a binary Git blob
+PASS  Permanent OpenBB ODP integration retained
+PASS  Arbitrary weight-strategy engine retained
+PASS  Monte Carlo, portfolio comparison and NVIDIA optimization schemas retained
+PASS  Databricks Model Serving and Feature Serving helpers retained
+PASS  Minimal openbb-platform-api Databricks App retained
+
+Repository-specific note:
+The GitHub Databricks source notebook intentionally imports the checked-in
+src/quant_platform package and reads the checked-in SQL schema instead of embedding
+second copies of those sources inside the notebook. The small .ipynb file is a launcher
+for the repository-native Databricks source notebook. This keeps one authoritative copy
+of the engine/schema in source control.
+
+Environment validation still required:
+The project has not been executed inside the user's actual Databricks workspace because
+Unity Catalog permissions, SQL Warehouse, Lakeflow Jobs, Apps, provider credentials,
+network egress and billable Serving resources are workspace-specific.

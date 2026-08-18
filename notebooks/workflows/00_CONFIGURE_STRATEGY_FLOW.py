@@ -1,7 +1,7 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # Configure Automated Strategy Flow
-# MAGIC Create a reusable Lakeflow Job around any DBO_Quant strategy notebook, including a copied custom strategy template.
+# MAGIC Create or update a reusable Lakeflow Job around any DBO_Quant strategy notebook, including a copied custom strategy template.
 # MAGIC
 # MAGIC Default flow:
 # MAGIC
@@ -141,15 +141,29 @@ print(json.dumps(settings,indent=2))
 
 # COMMAND ----------
 # MAGIC %md
-# MAGIC ## Create the Job
-# MAGIC The cell below creates the Lakeflow Job. Rerunning this notebook creates another Job with the same name; delete or rename an old Job first if you want a single definition.
+# MAGIC ## Create or update the Job
+# MAGIC The exact `job_name` is the stable identity for this configuration notebook. If one Job with that name already exists, its settings are replaced. If none exists, a new Job is created. Multiple existing Jobs with the same name are rejected rather than guessed.
 
 # COMMAND ----------
 w=WorkspaceClient()
 job_settings=JobSettings.from_dict(settings)
-created=w.jobs.create(**job_settings.as_shallow_dict())
-print('JOB CREATED')
-print('job_id =',created.job_id)
+existing=list(w.jobs.list(name=JOB_NAME))
+exact=[j for j in existing if j.settings and (j.settings.name or '').casefold()==JOB_NAME.casefold()]
+if len(exact)>1:
+    ids=', '.join(str(j.job_id) for j in exact)
+    raise RuntimeError(f'Multiple Jobs named {JOB_NAME!r} already exist ({ids}). Rename or delete duplicates before continuing.')
+
+if exact:
+    job_id=int(exact[0].job_id)
+    w.jobs.reset(job_id=job_id,new_settings=job_settings)
+    action='UPDATED'
+else:
+    created=w.jobs.create(**job_settings.as_shallow_dict())
+    job_id=int(created.job_id)
+    action='CREATED'
+
+print('JOB',action)
+print('job_id =',job_id)
 print('job_name =',JOB_NAME)
 print('schedule =',CRON or 'manual Run now')
 print('CPU optimizer default = optimization/portfolio_optimization/portfolio_config.toml -> execution.solver = "cpu"')

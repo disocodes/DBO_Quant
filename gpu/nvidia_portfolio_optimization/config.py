@@ -1,20 +1,11 @@
 from __future__ import annotations
 
 import os
+import tomllib
 from pathlib import Path
 
 
-def _parse_bool(value: str | None, default: bool = False) -> bool:
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
-
-
 def _load_env_file(path: Path) -> None:
-    """Load a simple KEY=VALUE .env file without adding another dependency.
-
-    Existing environment variables win over values in the file.
-    """
     if not path.exists():
         return
     for raw in path.read_text().splitlines():
@@ -22,9 +13,7 @@ def _load_env_file(path: Path) -> None:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
-        os.environ.setdefault(key, value)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
 def find_repo_root(start: Path | None = None) -> Path:
@@ -35,35 +24,68 @@ def find_repo_root(start: Path | None = None) -> Path:
     raise RuntimeError("Could not locate DBO_Quant repository root")
 
 
-def load_gpu_config(repo_root: Path | None = None) -> dict:
+def load_portfolio_config(repo_root: Path | None = None) -> dict:
+    root = repo_root or find_repo_root()
+    path = root / "gpu" / "nvidia_portfolio_optimization" / "portfolio_config.toml"
+    data = tomllib.loads(path.read_text())
+    p = data.get("portfolio", {})
+    o = data.get("optimizer", {})
+    r = data.get("rebalancing", {})
+    out = data.get("output", {})
+    return {
+        "portfolio_id": str(p.get("portfolio_id", "")).strip(),
+        "symbols": [str(x).strip().upper() for x in p.get("symbols", []) if str(x).strip()],
+        "risk_aversion": float(o.get("risk_aversion", 1.0)),
+        "confidence": float(o.get("confidence", 0.95)),
+        "num_scenarios": int(o.get("num_scenarios", 10000)),
+        "frontier_points": int(o.get("frontier_points", 25)),
+        "run_rebalancing": bool(r.get("enabled", False)),
+        "transaction_cost_factor": float(r.get("transaction_cost_factor", 0.0)),
+        "look_back_window": int(r.get("look_back_window", 126)),
+        "look_forward_window": int(r.get("look_forward_window", 21)),
+        "push_results": bool(out.get("push_results", True)),
+    }
+
+
+def load_external_connection(repo_root: Path | None = None, interactive: bool = True) -> dict:
+    """Resolve external Databricks connection settings.
+
+    Existing Databricks profile/env is preferred. If no profile is configured,
+    workspace URL + SQL Warehouse HTTP path can be supplied interactively and
+    OAuth U2M browser sign-in is used.
+    """
     root = repo_root or find_repo_root()
     _load_env_file(root / ".env")
-
-    symbols = [s.strip().upper() for s in os.getenv("DBO_SYMBOLS", "SPY,QQQ,IEF,GLD").split(",") if s.strip()]
     profile = os.getenv("DATABRICKS_PROFILE", "").strip() or None
+    host = os.getenv("DATABRICKS_HOST", "").strip() or None
     http_path = os.getenv("DATABRICKS_HTTP_PATH", "").strip()
-    catalog = os.getenv("DBO_CATALOG", os.getenv("FINANCE_CATALOG", "")).strip()
-    schema = os.getenv("DBO_SCHEMA", os.getenv("FINANCE_SCHEMA", "openbb_quant")).strip()
+    catalog = os.getenv("DBO_CATALOG", "").strip()
+    schema = os.getenv("DBO_SCHEMA", "openbb_quant").strip() or "openbb_quant"
 
+    if interactive and not profile:
+        if not host:
+            host = input("Databricks workspace URL (https://...): ").strip()
+        if not http_path:
+            http_path = input("SQL Warehouse HTTP path (/sql/1.0/warehouses/...): ").strip()
     if not http_path:
-        raise ValueError("Set DATABRICKS_HTTP_PATH in .env or the environment")
-    if not catalog or catalog.startswith("REPLACE_WITH"):
-        raise ValueError("Set DBO_CATALOG (or FINANCE_CATALOG) in .env")
+        raise ValueError("A SQL Warehouse HTTP path is required for the external GPU route")
+    if not catalog:
+        if interactive:
+            catalog = input("Unity Catalog catalog name: ").strip()
+        if not catalog:
+            raise ValueError("Catalog is required")
 
     return {
         "http_path": http_path,
         "catalog": catalog,
-        "schema": schema or "openbb_quant",
+        "schema": schema,
         "profile": profile,
-        "portfolio_id": os.getenv("DBO_PORTFOLIO_ID", "").strip(),
-        "symbols": symbols,
-        "risk_aversion": float(os.getenv("DBO_RISK_AVERSION", "1.0")),
-        "confidence": float(os.getenv("DBO_CONFIDENCE", "0.95")),
-        "num_scenarios": int(os.getenv("DBO_NUM_SCENARIOS", "10000")),
-        "frontier_points": int(os.getenv("DBO_FRONTIER_POINTS", "25")),
-        "run_rebalancing": _parse_bool(os.getenv("DBO_RUN_REBALANCING"), False),
-        "transaction_cost_factor": float(os.getenv("DBO_TRANSACTION_COST_FACTOR", "0.0")),
-        "look_back_window": int(os.getenv("DBO_LOOK_BACK_WINDOW", "126")),
-        "look_forward_window": int(os.getenv("DBO_LOOK_FORWARD_WINDOW", "21")),
-        "push_results": _parse_bool(os.getenv("DBO_PUSH_RESULTS"), True),
+        "host": host,
+        "auth_mode": "profile" if profile else "oauth",
     }
+
+
+def load_gpu_config(repo_root: Path | None = None, interactive: bool = True) -> dict:
+    cfg = load_portfolio_config(repo_root)
+    cfg.update(load_external_connection(repo_root, interactive=interactive))
+    return cfg

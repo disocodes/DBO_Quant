@@ -1,29 +1,30 @@
-# Minimal API gateway. The user-facing UI remains OpenBB Workspace.
+# DBO_Quant OpenBB API App
+# First deployment requires only a SQL Warehouse resource.
 command:
   - sh
   - -c
   - 'openbb-build && openbb-api --app app.py --apps-json ./workspace_apps.json --host 0.0.0.0 --port "$DATABRICKS_APP_PORT"'
 
 env:
-  # Add a SQL warehouse as an App resource with resource key: sql_warehouse
+  # Add a SQL Warehouse App resource with resource key: sql_warehouse
   - name: DATABRICKS_WAREHOUSE_ID
     valueFrom: sql_warehouse
+
+  # Set this to the same catalog/schema used in notebooks/00_SETUP.py.
   - name: FINANCE_CATALOG
-    value: REPLACE_WITH_CATALOG
+    value: REPLACE_WITH_YOUR_CATALOG
   - name: FINANCE_SCHEMA
     value: openbb_quant
 
-  # Add the three Lakeflow Jobs as App resources with CAN MANAGE RUN.
+  # Optional production Job IDs. Leave blank for the first deployment.
+  # Add these later when you create Lakeflow Jobs from jobs/*.py.
   - name: BACKTEST_JOB_ID
-    valueFrom: backtest_job
+    value: ""
   - name: MONTE_CARLO_JOB_ID
-    valueFrom: monte_carlo_job
+    value: ""
   - name: COMPARISON_JOB_ID
-    valueFrom: comparison_job
+    value: ""
 
-  # Provider keys are intentionally NOT hard-coded here. Add Databricks Secret resources
-  # to the App and map them to FMP_API_KEY, FRED_API_KEY, INTRINIO_API_KEY, etc.
-
-  # Hosted Workspace origin. Add comma-separated enterprise/self-hosted origins if needed.
+  # Add provider secrets as Databricks App secret resources only when needed.
   - name: OPENBB_ALLOWED_ORIGINS
     value: https://pro.openbb.co

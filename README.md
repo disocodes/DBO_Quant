@@ -13,11 +13,15 @@ selected strategy notebook
    ↓
 strategy run_id
    ↓
-Monte Carlo forward-risk validation
+Monte Carlo — strategy allocation baseline
    ↓
-optional portfolio optimization
+portfolio optimization on the same strategy allocation/universe
    ├─ CPU: CVXPY + CLARABEL (default)
    └─ GPU: CVXPY + NVIDIA cuOpt
+   ↓
+optimization run_id
+   ↓
+Monte Carlo — optimized allocation
    ↓
 persisted Unity Catalog results
    ↓
@@ -89,17 +93,21 @@ refresh market data
       ↓
 selected strategy
       ↓
-Monte Carlo using that strategy_run_id
+Monte Carlo baseline using strategy_run_id
       ↓
-portfolio optimization
+portfolio optimization using the same strategy_run_id
+      ↓
+Monte Carlo using optimization_run_id
       ↓
 persist results for OpenBB
 ```
 
+This means the optimizer does not silently switch to an unrelated symbol basket: in the automated flow it uses the selected strategy's latest effective allocation as the reference portfolio and its active symbols as the optimization universe.
+
 The committed defaults are:
 
 - refresh market data: enabled;
-- Monte Carlo: enabled;
+- Monte Carlo: enabled before and after optimization;
 - portfolio optimization: enabled;
 - portfolio optimizer: **CPU**;
 - Databricks App redeployment: disabled;
@@ -148,10 +156,12 @@ solver = "cpu"
 
 Solver modes:
 
-- `cpu` — NVIDIA Portfolio Optimization's CVXPY path with CLARABEL; CPU KDE/scenario generation; no GPU required.
-- `gpu` — CVXPY with NVIDIA cuOpt and GPU KDE/scenario generation; requires a compatible NVIDIA/cuOpt environment.
+- `cpu` — CVXPY + CLARABEL with CPU return/scenario computation; no GPU required.
+- `gpu` — CVXPY + NVIDIA cuOpt with GPU return/scenario computation; requires a compatible NVIDIA/cuOpt environment.
 
-Both routes persist the same result tables and IDs. Review either type of run with:
+The Databricks notebook can use the portfolio/symbols in `portfolio_config.toml`, or accept a `strategy_run` source so the optimization universe/reference allocation comes directly from a completed strategy run.
+
+Both execution routes persist the same result tables and IDs. Review either type of run with:
 
 ```text
 notebooks/portfolio/03_OPTIMIZATION_RESULTS.py
@@ -200,6 +210,8 @@ Persisted OpenBB visualizations include:
 - rebalancing portfolio-value curve;
 - associated run, holdings, metrics, and event tables.
 
+The default automated flow produces both a strategy-allocation Monte Carlo run and an optimized-allocation Monte Carlo run, so both can be inspected alongside the optimization frontier in OpenBB.
+
 ## 8. Optional Serving
 
 `notebooks/platform/01_SERVING.py` is only for Model Serving or Feature Serving. Backtests, Monte Carlo, portfolio optimization, automated Jobs, and OpenBB result viewing do not require Serving.
@@ -228,7 +240,7 @@ DBO_Quant/
 │   └── platform/
 ├── src/quant_platform/
 ├── optimization/portfolio_optimization/
-├── nvidia_bridge/
+├── nvidia_bridge/              internal external-writeback adapter
 ├── sql/
 ├── jobs/
 ├── serving/

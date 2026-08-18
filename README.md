@@ -1,6 +1,6 @@
 # DBO_Quant
 
-DBO_Quant is a Databricks quantitative-research platform using OpenBB ODP for financial data access, Delta/Unity Catalog for storage, a reusable target-weight backtest engine, Databricks Serving for model/feature inference, and OpenBB Workspace as the research UI.
+DBO_Quant is a Databricks quantitative-research platform using OpenBB ODP for financial data access, Delta/Unity Catalog for storage, a reusable target-weight backtest engine, optional NVIDIA GPU portfolio optimization, Databricks Serving, and OpenBB Workspace as the research UI.
 
 ## First run
 
@@ -12,9 +12,39 @@ notebooks/00_SETUP.py
 notebooks/01_INGEST_DATA.py
 ```
 
-`00_SETUP.py` installs Databricks-side dependencies and applies every SQL migration in `sql/`. `01_INGEST_DATA.py` loads price history through OpenBB ODP into `prices_daily`.
+`00_SETUP.py` installs the Databricks-side dependencies and applies every SQL migration in `sql/`. `01_INGEST_DATA.py` loads price history through OpenBB ODP into `prices_daily`.
 
 After these two steps, choose the research workflow you need. Setup does not need to be rerun for ordinary research.
+
+## Shared configuration
+
+Copy the committed template to a local `.env` file:
+
+```bash
+cp .env.example .env
+```
+
+`.env` is ignored by Git. The NVIDIA GPU workflow reads its settings from this file (or equivalent environment variables), including:
+
+```dotenv
+DATABRICKS_PROFILE=
+DATABRICKS_HTTP_PATH=/sql/1.0/warehouses/...
+DBO_CATALOG=your_catalog
+DBO_SCHEMA=openbb_quant
+DBO_PORTFOLIO_ID=
+DBO_SYMBOLS=SPY,QQQ,IEF,GLD
+DBO_RISK_AVERSION=1.0
+DBO_CONFIDENCE=0.95
+DBO_NUM_SCENARIOS=10000
+DBO_FRONTIER_POINTS=25
+DBO_RUN_REBALANCING=false
+DBO_TRANSACTION_COST_FACTOR=0.0
+DBO_LOOK_BACK_WINDOW=126
+DBO_LOOK_FORWARD_WINDOW=21
+DBO_PUSH_RESULTS=true
+```
+
+Do not commit credentials or tokens in `.env`.
 
 ## Strategy backtesting
 
@@ -49,85 +79,95 @@ def strategy(prices, params):
     return target_weights_dataframe
 ```
 
-The returned DataFrame must use dates as the index and asset symbols as columns. Values are target portfolio weights.
-
-Do not modify the common engine for ordinary strategy development.
+The returned DataFrame uses dates as the index and asset symbols as columns. Values are target portfolio weights. Do not modify the common engine for ordinary strategy development.
 
 ## Portfolio analysis
-
-Use the notebooks under `notebooks/portfolio/` after data ingestion.
 
 ```text
 notebooks/portfolio/
 ├── 00_SAVE_PORTFOLIO.py
 ├── 01_COMPARE_RUNS.py
 ├── 02_MONTE_CARLO.py
-└── 03_NVIDIA_RESULTS.py
+├── 03_NVIDIA_RESULTS.py
+└── 04_NVIDIA_GPU_DATABRICKS.py
 ```
 
-- `00_SAVE_PORTFOLIO.py` creates a `portfolio_id` and stores a dated holdings snapshot. Run it again with the same `portfolio_id` and a new date to update the portfolio history.
-- `01_COMPARE_RUNS.py` compares two or more saved strategy `run_id` values.
-- `02_MONTE_CARLO.py` can use a saved `portfolio_id` or ad-hoc symbols/weights.
-- `03_NVIDIA_RESULTS.py` reviews optimization, backtest and rebalancing output pushed from the optional NVIDIA GPU workflow.
+- `00_SAVE_PORTFOLIO.py` creates or updates a saved `portfolio_id`.
+- `01_COMPARE_RUNS.py` compares saved strategy `run_id` values.
+- `02_MONTE_CARLO.py` can use a saved `portfolio_id` or ad-hoc weights.
+- `03_NVIDIA_RESULTS.py` reviews optimizer/backtest/rebalancing output already persisted in Databricks.
+- `04_NVIDIA_GPU_DATABRICKS.py` runs the NVIDIA workflow directly on compatible Databricks GPU compute.
 
-A saved `portfolio_id` is the preferred way to represent a real portfolio across Databricks, NVIDIA optimization and OpenBB.
+A saved `portfolio_id` is the preferred identity for a real portfolio across Databricks, NVIDIA optimization and OpenBB.
 
 ## Optional NVIDIA GPU portfolio optimization
 
-GPU optimization is a separate workflow. Databricks remains the system of record; the GPU computer is a compute worker.
+There are **two equal execution routes**. Both use the same `.env`, the same NVIDIA `portfolio_optimization` APIs, and write the same canonical result tables.
 
 ```text
-Saved portfolio / Databricks prices
-               │
-               ▼
- Remote or on-prem NVIDIA GPU
- NVIDIA portfolio-optimization + cuOpt
-               │
-        ┌──────┼────────┐
-        ▼      ▼        ▼
- optimization backtest rebalancing
-        │      │        │
-        └──────┴────────┘
-               │
-               ▼
-        write results back
-          to Databricks
-               │
-               ▼
-        OpenBB Workspace
+                    DBO_Quant / Unity Catalog
+                              │
+                   prices + saved portfolio
+                              │
+                 ┌────────────┴────────────┐
+                 │                         │
+                 ▼                         ▼
+       Databricks GPU compute       Remote/on-prem GPU
+       Runtime ML + cuOpt           NVIDIA environment
+                 │                         │
+                 └────────────┬────────────┘
+                              ▼
+             optimization / frontier / backtest
+                 optional dynamic rebalancing
+                              │
+                              ▼
+                    Unity Catalog results
+                              │
+                              ▼
+                       OpenBB Workspace
 ```
 
-The derived notebook is:
+### Route A — Databricks GPU
+
+Attach `notebooks/portfolio/04_NVIDIA_GPU_DATABRICKS.py` to compatible GPU-enabled Databricks Runtime ML compute. The notebook validates `nvidia-smi` and cuOpt before running.
+
+For Unity Catalog access on Databricks Runtime ML, use Dedicated access mode. The NVIDIA package/runtime must also be compatible with the CUDA/Python versions on the selected runtime.
+
+The Databricks route still uses the configured SQL Warehouse for the DBO_Quant read/write bridge, so persistence is identical to the external route.
+
+### Route B — remote/on-prem GPU
+
+Run:
 
 ```text
 gpu/nvidia_portfolio_optimization/DBO_NVIDIA_PORTFOLIO_OPTIMIZATION.ipynb
 ```
 
-Run it on a remote or on-prem Linux machine with a compatible NVIDIA GPU and NVIDIA's `portfolio-optimization` environment. The notebook can:
+inside NVIDIA's `portfolio-optimization` environment on a compatible GPU host. Authenticate to Databricks using unified authentication/profile/service-principal credentials.
 
-- read DBO_Quant price history directly through a Databricks SQL Warehouse
-- load the latest holdings for a saved `portfolio_id`, or use an ad-hoc symbol universe
+### What either route can do
+
+- load DBO_Quant prices
+- load latest holdings for a saved `portfolio_id`, or use an ad-hoc symbol universe
 - run NVIDIA Mean-CVaR optimization with cuOpt
-- generate a 25-point efficient frontier by default
-- backtest the optimized allocation against equal weight and the current saved portfolio
+- generate an efficient frontier
+- backtest the optimized allocation against equal weight and the saved current portfolio
 - optionally run dynamic monthly rebalancing
-- push frontier points, allocations, covariance data, backtest metrics and rebalancing output back to Databricks
+- persist frontier points, allocations, covariance data, backtest metrics and rebalancing output back to Databricks
 
-Rebalancing is disabled by default because it is more GPU-intensive. The GPU workflow requires cuOpt and does not silently substitute a CPU solver.
+Rebalancing is disabled by default because it performs repeated optimization and is more GPU-intensive.
 
-See `gpu/nvidia_portfolio_optimization/README.md` for one-time GPU environment setup.
-
-After the GPU notebook finishes, copy its `optimization_run_id` into:
+After either route finishes, copy the printed `optimization_run_id` into:
 
 ```text
 notebooks/portfolio/03_NVIDIA_RESULTS.py
 ```
 
-The same saved portfolio, optimizer outputs and rebalancing results are exposed to OpenBB Workspace through the DBO_Quant App.
+The same results are exposed to OpenBB Workspace through the DBO_Quant App.
+
+See `gpu/nvidia_portfolio_optimization/README.md` for GPU setup details.
 
 ## Platform deployment
-
-Infrastructure notebooks are separate from normal research:
 
 ```text
 notebooks/platform/
@@ -151,21 +191,25 @@ Refresh financial data
 Run a strategy
     notebooks/backtests/<STRATEGY>.py
 
-Compare saved strategies
-    notebooks/portfolio/01_COMPARE_RUNS.py
-
 Save/update a real portfolio
     notebooks/portfolio/00_SAVE_PORTFOLIO.py
+
+Compare saved strategies
+    notebooks/portfolio/01_COMPARE_RUNS.py
 
 Run Monte Carlo
     notebooks/portfolio/02_MONTE_CARLO.py
 
-Optional GPU optimization/rebalancing
-    gpu/nvidia_portfolio_optimization/DBO_NVIDIA_PORTFOLIO_OPTIMIZATION.ipynb
-    ↓
-    notebooks/portfolio/03_NVIDIA_RESULTS.py
+Optional NVIDIA GPU optimization/rebalancing
+    ├─ Databricks GPU:
+    │    notebooks/portfolio/04_NVIDIA_GPU_DATABRICKS.py
+    │
+    └─ Remote/on-prem GPU:
+         gpu/nvidia_portfolio_optimization/DBO_NVIDIA_PORTFOLIO_OPTIMIZATION.ipynb
+                ↓
+         notebooks/portfolio/03_NVIDIA_RESULTS.py
 
-Deploy or update research API
+Deploy/update API
     notebooks/platform/02_DEPLOY_APP.py
 
 Connect/check OpenBB Workspace
@@ -176,44 +220,21 @@ Connect/check OpenBB Workspace
 
 ```text
 DBO_Quant/
+├── .env.example
 ├── notebooks/
 │   ├── 00_SETUP.py
 │   ├── 01_INGEST_DATA.py
-│   ├── backtests/          # one notebook per strategy
-│   ├── portfolio/          # saved portfolios, comparison, Monte Carlo, NVIDIA results
-│   └── platform/           # Serving, App, OpenBB connection
-├── src/quant_platform/     # common backtest/Monte Carlo/research engine
-├── sql/                    # Unity Catalog schema and migrations
-├── jobs/                   # optional production Lakeflow workers
-├── serving/                # Model/Feature Serving helpers
-├── databricks_app/         # minimal OpenBB API backend
-├── gpu/                    # standalone GPU workflows
-├── nvidia_bridge/          # Databricks write-back adapters for NVIDIA output
+│   ├── backtests/
+│   ├── portfolio/
+│   └── platform/
+├── src/quant_platform/
+├── sql/
+├── jobs/
+├── serving/
+├── databricks_app/
+├── gpu/
+├── nvidia_bridge/
 └── tests/
-```
-
-## Core architecture
-
-```text
-Financial providers
-      │
-      ▼
- OpenBB ODP
-      │
-      ▼
-Delta / Unity Catalog
-      │
- ┌────┼───────────────┬──────────────────┐
- ▼    ▼               ▼                  ▼
-Quant Monte Carlo  Databricks Serving  NVIDIA GPU
-engine                                  optional
- └────┴───────────────┴──────────────────┘
-                  │
-                  ▼
-     Databricks App + openbb-platform-api
-                  │
-                  ▼
-          OpenBB Workspace
 ```
 
 OpenBB ODP is permanent. Unity Catalog/Delta is the system of record. The Databricks App is an API gateway, not another UI.

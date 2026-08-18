@@ -1,6 +1,6 @@
 """DBO_Quant application entrypoint.
 
-Imports the core OpenBB/Databricks API and adds saved-portfolio and optional NVIDIA
+Imports the core OpenBB/Databricks API and adds saved-portfolio and NVIDIA
 portfolio-analysis routes. openbb-platform-api discovers these routes automatically.
 """
 from typing import Optional
@@ -16,9 +16,7 @@ from app import app, fq, query_records
 )
 def saved_portfolios(limit: int = 100) -> list[dict]:
     limit = max(1, min(limit, 1000))
-    return query_records(
-        f"SELECT * FROM {fq('portfolio_definitions')} ORDER BY created_at DESC LIMIT {limit}"
-    )
+    return query_records(f"SELECT * FROM {fq('portfolio_definitions')} ORDER BY created_at DESC LIMIT {limit}")
 
 
 @app.get(
@@ -65,6 +63,32 @@ def cvar_frontier(optimization_run_id: str) -> dict:
 
 
 @app.get(
+    "/api/quant/optimization/allocation-chart",
+    openapi_extra={"widget_config": {"type": "chart", "name": "Optimized Allocation", "category": "Portfolio Lab"}},
+)
+def optimizer_allocation_chart(optimization_run_id: str, portfolio_label: str = "selected_optimal") -> dict:
+    rows = query_records(
+        f"SELECT symbol, weight FROM {fq('optimal_allocations')} WHERE optimization_run_id = ? AND portfolio_label = ? ORDER BY ABS(weight) DESC",
+        [optimization_run_id, portfolio_label],
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="allocation not found")
+    return {
+        "data": [{
+            "type": "bar",
+            "name": portfolio_label,
+            "x": [r["symbol"] for r in rows],
+            "y": [r["weight"] for r in rows],
+        }],
+        "layout": {
+            "title": f"Portfolio Allocation — {portfolio_label}",
+            "xaxis": {"title": "Asset"},
+            "yaxis": {"title": "Weight", "tickformat": ".1%"},
+        },
+    }
+
+
+@app.get(
     "/api/quant/optimization/backtest-metrics",
     openapi_extra={"widget_config": {"name": "Optimizer Backtest Metrics", "category": "Portfolio Lab"}},
 )
@@ -86,9 +110,7 @@ def optimizer_rebalance_runs(optimization_run_id: Optional[str] = None, limit: i
             f"SELECT * FROM {fq('optimization_rebalance_runs')} WHERE optimization_run_id = ? ORDER BY created_at DESC LIMIT {limit}",
             [optimization_run_id],
         )
-    return query_records(
-        f"SELECT * FROM {fq('optimization_rebalance_runs')} ORDER BY created_at DESC LIMIT {limit}"
-    )
+    return query_records(f"SELECT * FROM {fq('optimization_rebalance_runs')} ORDER BY created_at DESC LIMIT {limit}")
 
 
 @app.get(

@@ -2,28 +2,23 @@
 
 Run `notebooks/00_SETUP.py` once and keep `notebooks/01_INGEST_DATA.py` current before using this folder.
 
-## Purpose
-
-This folder covers portfolio-level research after market data exists in Unity Catalog.
+## Flow
 
 ```text
-Real portfolio
+Saved portfolio
 00_SAVE_PORTFOLIO.py
       ↓
  portfolio_id
-      │
       ├─→ 02_MONTE_CARLO.py
       │
-      └─→ optional NVIDIA optimization
-             ├─ Databricks GPU: 04_NVIDIA_GPU_DATABRICKS.py
-             └─ external GPU: ../../gpu/nvidia_portfolio_optimization/DBO_NVIDIA_PORTFOLIO_OPTIMIZATION.ipynb
-                         ↓
-                 03_NVIDIA_RESULTS.py
-                         ↓
-                 02_MONTE_CARLO.py
-                 source_type=optimization_run
+      └─→ 04_PORTFOLIO_OPTIMIZATION_DATABRICKS.py
+                ↓
+        optimization_run_id
+                ├─→ 03_OPTIMIZATION_RESULTS.py
+                └─→ 02_MONTE_CARLO.py
+                     source_type=optimization_run
 
-Strategy research
+Strategy notebook
 ../backtests/*.py
       ↓
     run_id
@@ -35,59 +30,52 @@ Strategy research
 ## Notebook roles
 
 ### `00_SAVE_PORTFOLIO.py`
-
-Creates or updates a real portfolio using a persistent `portfolio_id` and dated holdings snapshots.
+Creates or updates a portfolio using a persistent `portfolio_id` and dated holdings snapshots.
 
 ### `01_COMPARE_RUNS.py`
-
-Compares two or more historical strategy `run_id` values. Use it for backtest-to-backtest performance and wealth-curve comparison.
+Compares two or more historical strategy runs and persists a common comparison.
 
 ### `02_MONTE_CARLO.py`
+Forward-risk validation for an existing allocation. Sources are saved portfolios, strategy runs, optimization runs, or ad-hoc weights. It persists percentile curves and sample paths; it does not optimize weights.
 
-Forward-risk validation for an existing allocation. It can load weights from:
+### `03_OPTIMIZATION_RESULTS.py`
+Reviews any persisted portfolio-optimization result. CPU and GPU runs use the same tables and IDs, so the operator does not need separate result notebooks.
 
-- a saved `portfolio_id`;
-- a strategy `run_id`;
-- an NVIDIA/optimizer `optimization_run_id`;
-- an ad-hoc allocation.
-
-It persists percentile distributions and sample paths. Monte Carlo does not optimize weights.
-
-### `03_NVIDIA_RESULTS.py`
-
-Reviews already-persisted NVIDIA optimization, allocation, backtest-metric, and rebalancing results.
-
-### `04_NVIDIA_GPU_DATABRICKS.py`
-
-Runs the NVIDIA workflow on compatible Databricks GPU compute using native Spark/Unity Catalog access.
-
-## Recommended portfolio decision flow
+### `04_PORTFOLIO_OPTIMIZATION_DATABRICKS.py`
+Runs Mean-CVaR portfolio optimization inside Databricks. Solver selection comes from:
 
 ```text
-Saved current portfolio
-      ↓
-Monte Carlo baseline
-      ↓
-optional NVIDIA optimization
-      ↓
-selected_optimal allocation
-      ↓
-Monte Carlo validation
-      ↓
-compare downside/upside distributions
+optimization/portfolio_optimization/portfolio_config.toml
 ```
 
-This keeps the responsibilities separate: optimization chooses candidate weights; Monte Carlo evaluates forward uncertainty around those weights.
+The committed default is `solver = "cpu"`, using CVXPY + CLARABEL. Set `solver = "gpu"` to use CVXPY + NVIDIA cuOpt on compatible GPU compute.
+
+## Remote/on-prem optimization
+
+Use:
+
+```text
+optimization/portfolio_optimization/PORTFOLIO_OPTIMIZATION.ipynb
+```
+
+It uses the same configuration and writes the same result tables as the Databricks route.
+
+## Recommended decision flow
+
+```text
+Current portfolio or strategy allocation
+          ↓
+Monte Carlo baseline
+          ↓
+optional portfolio optimization
+          ↓
+selected_optimal allocation
+          ↓
+Monte Carlo validation
+          ↓
+OpenBB comparison and review
+```
 
 ## OpenBB outputs
 
-The Databricks App exposes:
-
-- saved portfolio holdings;
-- strategy comparison curves;
-- Monte Carlo fan charts;
-- Monte Carlo sample paths;
-- Mean-CVaR efficient frontier;
-- optimized allocation chart;
-- optimizer backtest metrics;
-- rebalancing events and portfolio-value curve.
+The Databricks App exposes saved holdings, strategy comparison curves, Monte Carlo fan/sample-path charts, the Mean-CVaR efficient frontier, optimized allocation chart, optimizer metrics, and rebalancing outputs.

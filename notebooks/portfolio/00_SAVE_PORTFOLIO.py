@@ -6,6 +6,7 @@
 # COMMAND ----------
 from datetime import date, datetime, timezone
 import json, uuid
+import numpy as np
 import pandas as pd
 current_catalog=spark.sql('SELECT current_catalog() c').first()['c']
 for n,d in [('catalog',current_catalog),('schema','openbb_quant'),('portfolio_id',''),('portfolio_name','My Portfolio'),('base_currency','USD'),('weights_json','{"SPY":0.4,"QQQ":0.2,"IEF":0.25,"GLD":0.15}'),('as_of_date',str(date.today()))]: dbutils.widgets.text(n,d)
@@ -23,7 +24,7 @@ if existing==0:
 # Replace this portfolio's holdings snapshot for the selected as-of date.
 spark.sql(f"DELETE FROM `{CATALOG}`.`{SCHEMA}`.`portfolio_holdings` WHERE portfolio_id = '{PORTFOLIO_ID}' AND as_of_date = DATE('{AS_OF}')")
 now=datetime.now(timezone.utc).replace(tzinfo=None)
-rows=[{'portfolio_id':PORTFOLIO_ID,'as_of_date':AS_OF,'symbol':str(symbol).upper(),'weight':float(weight),'quantity':None,'market_value':None,'source':'manual_notebook','ingested_at':now} for symbol,weight in WEIGHTS.items()]
+rows=[{'portfolio_id':PORTFOLIO_ID,'as_of_date':AS_OF,'symbol':str(symbol).upper(),'weight':float(weight),'quantity':np.nan,'market_value':np.nan,'source':'manual_notebook','ingested_at':now} for symbol,weight in WEIGHTS.items()]
 spark.createDataFrame(pd.DataFrame(rows)).write.mode('append').saveAsTable(f'{CATALOG}.{SCHEMA}.portfolio_holdings')
 
 # COMMAND ----------

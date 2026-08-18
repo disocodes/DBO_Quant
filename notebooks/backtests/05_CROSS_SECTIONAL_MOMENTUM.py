@@ -1,6 +1,12 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # Backtest — Cross-Sectional Momentum
+# MAGIC Rank the selected asset universe by trailing momentum, allocate to the configured leaders, and persist the backtest through the shared DBO_Quant engine.
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 1. Load the Research Engine and Configure Inputs
+# MAGIC Import the common runner and configure the universe, benchmark, momentum lookback, number of selected assets, rebalancing frequency, capital, and trading costs.
 
 # COMMAND ----------
 from pathlib import Path
@@ -12,6 +18,11 @@ sys.path.insert(0,str(repo_root/'src'))
 from quant_platform.research import run_research_strategy
 current_catalog=spark.sql('SELECT current_catalog() c').first()['c']
 for n,d in [('catalog',current_catalog),('schema','openbb_quant'),('symbols','SPY,QQQ,IEF,GLD'),('benchmark','SPY'),('lookback','126'),('top_n','2'),('rebalance','monthly'),('initial_capital','100000'),('fee_bps','5'),('slippage_bps','2')]: dbutils.widgets.text(n,d)
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 2. Run and Persist the Backtest
+# MAGIC Build the momentum-ranking parameters, execute the strategy, display the recent daily series and metrics, and print the saved `run_id` for downstream comparison or Monte Carlo.
 
 # COMMAND ----------
 symbols=[x.strip().upper() for x in dbutils.widgets.get('symbols').split(',') if x.strip()]

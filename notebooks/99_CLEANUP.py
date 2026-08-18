@@ -10,6 +10,11 @@
 # MAGIC Optional fields can also delete a named Databricks App, Databricks Jobs, Serving endpoints, and a Databricks Online Feature Store when you explicitly provide their identifiers.
 
 # COMMAND ----------
+# MAGIC %md
+# MAGIC ## 1. Discover the DBO_Quant Deployment
+# MAGIC Load the canonical namespace and Databricks SDK client used to identify the exact resources eligible for cleanup.
+
+# COMMAND ----------
 from pathlib import Path
 import sys
 
@@ -27,10 +32,20 @@ NAMESPACE=location.namespace
 print('Detected DBO_Quant deployment:',NAMESPACE)
 
 # COMMAND ----------
+# MAGIC %md
+# MAGIC ## 2. Review Resources Before Deletion
+# MAGIC Display the tables currently inside the DBO_Quant schema and confirm that the parent Unity Catalog catalog is outside the default deletion scope.
+
+# COMMAND ----------
 objects=spark.sql(f"SHOW TABLES IN `{CATALOG}`.`{SCHEMA}`")
 display(objects)
 print('The parent catalog will NOT be deleted:',CATALOG)
 print('Only this schema is targeted by the default cleanup:',NAMESPACE)
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 3. Configure Cleanup and Require Explicit Confirmation
+# MAGIC Select which optional platform resources should be removed. Cleanup is blocked unless the exact namespace-specific confirmation phrase is entered.
 
 # COMMAND ----------
 dbutils.widgets.text('confirmation','',f'Type DROP {NAMESPACE}')
@@ -44,6 +59,11 @@ EXPECTED=f'DROP {NAMESPACE}'
 CONFIRM=dbutils.widgets.get('confirmation').strip()
 if CONFIRM!=EXPECTED:
     raise RuntimeError(f'Cleanup blocked. Type exactly: {EXPECTED}')
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 4. Delete Explicitly Named Platform Resources
+# MAGIC Remove only the Databricks Apps, Jobs, Serving endpoints, and Online Feature Store identifiers supplied in the widgets, recording success or failure for each request.
 
 # COMMAND ----------
 w=WorkspaceClient()
@@ -84,11 +104,21 @@ for job_id in job_ids:
         cleanup_log.append(('Databricks Job',job_id,f'ERROR: {exc}'))
 
 # COMMAND ----------
+# MAGIC %md
+# MAGIC ## 5. Drop the DBO_Quant Schema
+# MAGIC When enabled, remove the canonical project schema and all contained tables with `CASCADE` while leaving the parent catalog intact.
+
+# COMMAND ----------
 if dbutils.widgets.get('delete_schema').lower()=='true':
     spark.sql(f'DROP SCHEMA `{CATALOG}`.`{SCHEMA}` CASCADE')
     cleanup_log.append(('Unity Catalog schema',NAMESPACE,'DELETED WITH CASCADE'))
 else:
     cleanup_log.append(('Unity Catalog schema',NAMESPACE,'SKIPPED'))
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 6. Review Cleanup Results
+# MAGIC Display the resource-level cleanup log and list shared infrastructure that is intentionally left untouched.
 
 # COMMAND ----------
 if cleanup_log:

@@ -3,7 +3,7 @@
 # MAGIC # Platform — Automated App Deployment
 # MAGIC Optional final task for an automated research workflow.
 # MAGIC
-# MAGIC This performs a real Databricks App deployment from Git. The App must already exist and its required resources, such as the SQL Warehouse resource, must already be configured.
+# MAGIC This deploys the Databricks App from the existing DBO_Quant workspace Git folder. The App must already exist and its required resources, such as the SQL Warehouse resource, must already be configured.
 
 # COMMAND ----------
 # MAGIC %md
@@ -23,8 +23,8 @@ dbutils.library.restartPython()
 
 # COMMAND ----------
 # MAGIC %md
-# MAGIC ## 3. Discover the Project and Configure the Deployment Source
-# MAGIC Resolve the canonical DBO_Quant namespace and configure the existing App name, expected Git repository, branch, and repository subfolder to deploy.
+# MAGIC ## 3. Discover the Project and Configure the Workspace Source
+# MAGIC Resolve the canonical DBO_Quant namespace and configure the existing App name plus the absolute Databricks workspace path of the cloned DBO_Quant Git folder.
 
 # COMMAND ----------
 from pathlib import Path
@@ -40,19 +40,27 @@ location=discover_with_spark(spark)
 CATALOG,SCHEMA=location.catalog,location.schema
 for name,default in [
     ('app_name','dbo-quant-api'),
-    ('git_url','https://github.com/disocodes/DBO_Quant.git'),
-    ('git_branch','main'),
+    ('repo_workspace_root',''),
     ('app_source_path','databricks_app'),
 ]: dbutils.widgets.text(name,default)
+
 APP_NAME=dbutils.widgets.get('app_name').strip()
-GIT_URL=dbutils.widgets.get('git_url').strip()
-GIT_BRANCH=dbutils.widgets.get('git_branch').strip()
+WORKSPACE_ROOT=dbutils.widgets.get('repo_workspace_root').strip().rstrip('/')
 APP_SOURCE=dbutils.widgets.get('app_source_path').strip().strip('/')
+
+if not WORKSPACE_ROOT:
+    raise ValueError('repo_workspace_root is required. Use the absolute Databricks workspace path of the cloned DBO_Quant Git folder.')
+if not WORKSPACE_ROOT.startswith('/Workspace/'):
+    raise ValueError('repo_workspace_root must be an absolute Databricks workspace path beginning with /Workspace/.')
+if not APP_SOURCE:
+    raise ValueError('app_source_path is required')
+
+SOURCE_CODE_PATH=f'{WORKSPACE_ROOT}/{APP_SOURCE}'
 
 # COMMAND ----------
 # MAGIC %md
 # MAGIC ## 4. Validate the Existing App and Request Deployment
-# MAGIC Confirm the named Databricks App exists, build the Git deployment payload with the canonical catalog/schema environment variables, print the deployment target, and submit the deployment request.
+# MAGIC Confirm the named Databricks App exists, deploy the already-cloned `databricks_app/` workspace folder as a snapshot, and supply the canonical catalog/schema as runtime environment variables.
 
 # COMMAND ----------
 w=WorkspaceClient()
@@ -64,10 +72,7 @@ except Exception as exc:
     ) from exc
 
 body={
-    'git_source': {
-        'branch': GIT_BRANCH,
-        'source_code_path': APP_SOURCE,
-    },
+    'source_code_path': SOURCE_CODE_PATH,
     'mode': 'SNAPSHOT',
     'env_vars': [
         {'name':'FINANCE_CATALOG','value':CATALOG},
@@ -75,13 +80,8 @@ body={
     ],
 }
 
-# The App's configured Git repository is used for the deployment. The URL is printed
-# as an operator check because the deployment endpoint resolves the repository from
-# the App configuration and the git_source ref above.
 print('App:',APP_NAME)
-print('Expected Git repository:',GIT_URL)
-print('Branch:',GIT_BRANCH)
-print('Source path:',APP_SOURCE)
+print('Workspace source:',SOURCE_CODE_PATH)
 print('DBO_Quant namespace:',location.namespace)
 
 response=w.api_client.do(
@@ -99,6 +99,7 @@ print('Deployment response:',response)
 # COMMAND ----------
 app=w.apps.get(name=APP_NAME)
 print('APP DEPLOYMENT REQUESTED')
+print('Deployment source:',SOURCE_CODE_PATH)
 print('OpenBB backend URL:',str(app.url).rstrip('/') + '/api' if app.url else '<App URL becomes available after deployment>')
 try:
     dbutils.jobs.taskValues.set(key='app_url', value=str(app.url or ''))

@@ -6,6 +6,11 @@
 # MAGIC **Prerequisite:** run `00_SETUP.py` and `01_INGEST_DATA.py`.
 
 # COMMAND ----------
+# MAGIC %md
+# MAGIC ## 1. Load the Monte Carlo Engine and Discover the Project
+# MAGIC Import the shared simulation engine, find the repository root, and resolve the canonical DBO_Quant Unity Catalog namespace.
+
+# COMMAND ----------
 from pathlib import Path
 from datetime import datetime, timezone
 import sys, json
@@ -25,6 +30,11 @@ CATALOG,SCHEMA=location.catalog,location.schema
 print('DBO_Quant namespace:',location.namespace)
 
 # COMMAND ----------
+# MAGIC %md
+# MAGIC ## 2. Configure the Allocation Source and Simulation
+# MAGIC Choose where portfolio weights come from and set the starting value, simulation horizon, number of paths, simulation method, and rebalancing interval.
+
+# COMMAND ----------
 # Choose one allocation source.
 dbutils.widgets.dropdown('source_type','saved_portfolio',['saved_portfolio','strategy_run','optimization_run','adhoc'],'Allocation source')
 dbutils.widgets.text('source_id','','portfolio_id, run_id, or optimization_run_id')
@@ -38,6 +48,11 @@ dbutils.widgets.text('rebalance_every_days','21')
 
 SOURCE_TYPE=dbutils.widgets.get('source_type')
 SOURCE_ID=dbutils.widgets.get('source_id').strip()
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 3. Resolve and Validate Portfolio Weights
+# MAGIC Load the requested saved portfolio, strategy allocation, optimized allocation, or ad-hoc weights, normalize them, and display the exact allocation that will be simulated.
 
 # COMMAND ----------
 def normalized(series: pd.Series) -> pd.Series:
@@ -86,6 +101,11 @@ print('Testing:',source_description)
 display(WEIGHTS.rename('weight').reset_index().rename(columns={'index':'symbol'}))
 
 # COMMAND ----------
+# MAGIC %md
+# MAGIC ## 4. Build Returns and Run the Simulation
+# MAGIC Load historical prices for the selected assets, calculate aligned daily returns, call the shared Monte Carlo engine, and preview the resulting summary and percentile paths.
+
+# COMMAND ----------
 prices=(spark.table(f'{CATALOG}.{SCHEMA}.prices_daily')
         .where(F.col('symbol').isin(SYMBOLS))
         .select('date','symbol',F.coalesce('adjusted_close','close').alias('price'))
@@ -105,6 +125,11 @@ mc=simulate_portfolio(
 
 print(mc.summary)
 display(mc.percentiles.iloc[::max(1,len(mc.percentiles)//30)].reset_index())
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 5. Persist Monte Carlo Results for OpenBB
+# MAGIC Save the run metadata, percentile curves, and sample paths to Unity Catalog, publish the `mc_run_id` as a task value when running in a Job, and print the OpenBB handoff.
 
 # COMMAND ----------
 now=datetime.now(timezone.utc).replace(tzinfo=None)

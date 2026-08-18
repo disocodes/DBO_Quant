@@ -1,0 +1,25 @@
+# Non-secret portfolio-optimization settings shared by Databricks and external runs.
+# Use either portfolio_id or symbols. A saved portfolio_id is preferred.
+
+[portfolio]
+portfolio_id = ""
+symbols = ["SPY", "QQQ", "IEF", "GLD"]
+
+[execution]
+# cpu = CVXPY + CLARABEL; gpu = CVXPY + NVIDIA cuOpt
+solver = "cpu"
+
+[optimizer]
+risk_aversion = 1.0
+confidence = 0.95
+num_scenarios = 10000
+frontier_points = 25
+
+[rebalancing]
+enabled = false
+transaction_cost_factor = 0.0
+look_back_window = 126
+look_forward_window = 21
+
+[output]
+push_results = true

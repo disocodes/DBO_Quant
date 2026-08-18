@@ -17,7 +17,7 @@ It supports:
 - manual `Run now` execution;
 - scheduled execution with a Quartz cron expression;
 - downstream task handoff through Databricks task values;
-- optional Databricks App redeployment.
+- optional Databricks App redeployment from the same workspace Git folder.
 
 ## Default workflow
 
@@ -42,7 +42,7 @@ source_type=optimization_run
       ↓
 persisted Unity Catalog results
       ↓
-optional App redeployment
+optional App redeployment from repo_workspace_root/databricks_app
 ```
 
 The optimization task uses the selected strategy's latest effective allocation as its reference allocation and the strategy's active assets as its optimization universe.
@@ -51,13 +51,20 @@ The optimization task uses the selected strategy's latest effective allocation a
 
 ### `repo_workspace_root`
 
-Absolute Databricks workspace path of the DBO_Quant Git folder.
+Absolute Databricks workspace path of the cloned DBO_Quant Git folder.
 
 Example:
 
 ```text
 /Workspace/Users/user@example.com/DBO_Quant
 ```
+
+This one path is used for both:
+
+- notebook task paths in the Lakeflow Job;
+- the optional Databricks App deployment source at `<repo_workspace_root>/databricks_app`.
+
+The App does not need a second GitHub clone path.
 
 ### `strategy_notebook`
 
@@ -140,7 +147,7 @@ CPU mode uses CVXPY + CLARABEL. GPU mode requires compatible GPU compute and the
 
 ## App redeployment
 
-App redeployment is disabled by default.
+App redeployment is disabled by default because new research results are persisted to Unity Catalog and become visible to an already-running App without redeploying its source code.
 
 Set:
 
@@ -148,13 +155,27 @@ Set:
 include_app_deploy = true
 ```
 
-only after the Databricks App already exists and its required Git, SQL Warehouse, permissions, and App resources are configured.
+only when the App source itself needs to be refreshed and after the Databricks App already exists with its SQL Warehouse, permissions, and App resources configured.
 
 The final task uses:
 
 ```text
 notebooks/platform/04_DEPLOY_APP_AUTOMATED.py
 ```
+
+and receives:
+
+```text
+repo_workspace_root = <same workspace Git folder used by the Job>
+```
+
+The deployment snapshot source is therefore:
+
+```text
+<repo_workspace_root>/databricks_app
+```
+
+No Git URL or branch parameter is required by this workflow.
 
 ## OpenBB results
 

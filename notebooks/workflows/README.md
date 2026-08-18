@@ -15,18 +15,24 @@ selected strategy notebook
       ↓
 strategy_run_id task value
       ↓
-02_MONTE_CARLO
-source_type=strategy_run
+Monte Carlo — strategy allocation baseline
       ↓
-04_PORTFOLIO_OPTIMIZATION_DATABRICKS
-CPU solver by default
+Portfolio Optimization
+input = same strategy_run_id
+solver = CPU by default
+      ↓
+optimization_run_id task value
+      ↓
+Monte Carlo — optimized allocation
       ↓
 persisted Unity Catalog results
       ↓
-optional 04_DEPLOY_APP_AUTOMATED
+optional automated App deployment
       ↓
 OpenBB Workspace
 ```
+
+This produces an apples-to-apples research sequence: the optimizer receives the selected strategy's latest effective allocation/universe, and Monte Carlo evaluates both the strategy allocation and the resulting optimized allocation.
 
 ### Required configuration
 
@@ -42,6 +48,8 @@ Example:
 }
 ```
 
+The strategy notebook can be any built-in notebook or a copied custom strategy template, provided it uses the shared DBO_Quant research engine and therefore publishes `strategy_run_id`.
+
 ### Scheduling
 
 Leave `cron_expression` blank for a manually triggered Job. To automate runs, provide a Databricks Quartz cron expression and a `timezone_id`.
@@ -55,7 +63,7 @@ The Job uses `optimization/portfolio_optimization/portfolio_config.toml`. The co
 solver = "cpu"
 ```
 
-Change it to `gpu` only when the optimization task is configured on compatible GPU compute.
+CPU mode uses CVXPY + CLARABEL. Change the setting to `gpu` only when the optimization task is configured on compatible GPU compute with cuOpt/cuML available.
 
 ### App deployment
 
@@ -63,4 +71,4 @@ Change it to `gpu` only when the optimization task is configured on compatible G
 
 ### OpenBB
 
-The Job does not create a second dashboard. Each research task persists results to Unity Catalog; the DBO_Quant Databricks App exposes those results to OpenBB Workspace.
+The Job does not create a second dashboard. Each research task persists results to Unity Catalog. The DBO_Quant App exposes the strategy curves, both Monte Carlo runs, optimization frontier/allocation, and optional rebalancing output to OpenBB Workspace.

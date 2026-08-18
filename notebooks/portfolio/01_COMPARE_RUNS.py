@@ -1,7 +1,12 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # Portfolio Analysis — Compare Saved Backtests
-# MAGIC Run two or more strategy notebooks first, then paste their `run_id` values below.
+# MAGIC Load two or more persisted strategy runs, compare their historical performance on a common view, and save the comparison for OpenBB.
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 1. Discover the Project and Select Strategy Runs
+# MAGIC Load the canonical DBO_Quant namespace and configure the `run_id` values and comparison name to analyse.
 
 # COMMAND ----------
 from pathlib import Path
@@ -25,6 +30,11 @@ RUN_IDS=[x.strip() for x in dbutils.widgets.get('run_ids').split(',') if x.strip
 if len(RUN_IDS)<2: raise ValueError('Provide at least two run IDs produced by notebooks/backtests/*.py')
 
 # COMMAND ----------
+# MAGIC %md
+# MAGIC ## 2. Load and Display the Requested Backtests
+# MAGIC Read run metadata, daily performance, and metrics from Unity Catalog, then display aligned metric and wealth views for the selected strategies.
+
+# COMMAND ----------
 where='run_id IN ({})'.format(','.join([f"'{x}'" for x in RUN_IDS]))
 runs=spark.table(f'{CATALOG}.{SCHEMA}.strategy_runs').where(where).toPandas()
 daily=spark.table(f'{CATALOG}.{SCHEMA}.strategy_daily').where(where).toPandas()
@@ -33,6 +43,11 @@ if len(runs)<2: raise RuntimeError('Could not find at least two requested run ID
 labels={r.run_id:f'{r.strategy_name} [{r.run_id[:8]}]' for _,r in runs.iterrows()}
 display(metrics.pivot_table(index='metric_name',columns='run_id',values='metric_value',aggfunc='last').rename(columns=labels).reset_index())
 display(daily.pivot_table(index='date',columns='run_id',values='wealth',aggfunc='last').rename(columns=labels).tail(60).reset_index())
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 3. Persist the Comparison for OpenBB
+# MAGIC Save the comparison definition, members, metrics, and daily curves to the DBO_Quant comparison tables and print the resulting `comparison_id`.
 
 # COMMAND ----------
 comparison_id=str(uuid.uuid4()); now=datetime.now(timezone.utc).replace(tzinfo=None); name=dbutils.widgets.get('comparison_name'); start=pd.to_datetime(daily.date).min().date(); end=pd.to_datetime(daily.date).max().date(); benchmark=str(runs.benchmark_symbol.dropna().iloc[0]) if runs.benchmark_symbol.notna().any() else ''

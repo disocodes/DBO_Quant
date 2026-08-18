@@ -1,82 +1,83 @@
 # DBO_Quant
 
-DBO_Quant is a Databricks quantitative-research platform built around OpenBB ODP, Unity Catalog/Delta, reusable strategy backtesting, Monte Carlo risk simulation, portfolio optimization, Databricks Jobs, and OpenBB Workspace.
+DBO_Quant is a Databricks-based quantitative research platform that combines OpenBB market data, Unity Catalog/Delta persistence, reusable strategy backtesting, Monte Carlo simulation, portfolio optimization, Databricks Jobs, and OpenBB Workspace.
 
-## End-to-end workflow
+## System workflow
 
 ```text
 00_SETUP
    ↓
 01_INGEST_DATA
    ↓
-selected strategy notebook
+strategy research
    ↓
-strategy run_id
+strategy_run_id
    ↓
-Monte Carlo — strategy allocation baseline
+Monte Carlo baseline
    ↓
-portfolio optimization on the same strategy allocation/universe
-   ├─ CPU: CVXPY + CLARABEL (default)
-   └─ GPU: CVXPY + NVIDIA cuOpt
+portfolio optimization
    ↓
-optimization run_id
+optimization_run_id
    ↓
-Monte Carlo — optimized allocation
+Monte Carlo on optimized allocation
    ↓
-persisted Unity Catalog results
+Unity Catalog / Delta
    ↓
 Databricks App
    ↓
 OpenBB Workspace
 ```
 
-The research components have distinct roles:
+The components have separate responsibilities:
 
-- **Backtest** — evaluates how a strategy behaved historically.
-- **Monte Carlo** — evaluates the distribution of future outcomes for an existing allocation.
-- **Portfolio optimization** — proposes an allocation for a Mean-CVaR objective.
-- **Rebalancing** — repeatedly re-optimizes an allocation through time.
-- **OpenBB Workspace** — displays persisted research results and curves.
+- **Backtesting** evaluates a strategy against historical market data.
+- **Monte Carlo** simulates possible future portfolio paths for an existing allocation.
+- **Portfolio optimization** calculates candidate allocations for a Mean-CVaR objective.
+- **Rebalancing** repeatedly re-optimizes an allocation through time when enabled.
+- **Unity Catalog/Delta** is the persistent system of record.
+- **OpenBB Workspace** is the analyst-facing interface for persisted results and charts.
 
-## 1. First run
+## 1. Initial setup
 
-Run:
+Run the following Databricks notebooks in order:
 
 ```text
 notebooks/00_SETUP.py
 notebooks/01_INGEST_DATA.py
 ```
 
-`00_SETUP.py` uses an existing Unity Catalog catalog, creates the DBO_Quant schema/tables when missing, records the canonical namespace, and safely reuses it on reruns.
+`00_SETUP.py` requires an existing Unity Catalog catalog. It creates the DBO_Quant schema and managed tables inside that catalog, records the canonical deployment location, and safely reuses the same namespace on reruns.
 
-`01_INGEST_DATA.py` discovers that namespace and writes OpenBB market data to `prices_daily`. On Databricks serverless it installs its own pinned OpenBB ingestion dependencies before importing OpenBB, so it does not depend on another notebook session.
+`01_INGEST_DATA.py` discovers the canonical namespace and loads OpenBB market data into `prices_daily`. The notebook installs its required OpenBB packages in its own Databricks session before importing OpenBB.
 
 ## 2. Strategy research
 
-Built-in strategy notebooks are under:
+Strategy notebooks are located in:
 
 ```text
 notebooks/backtests/
 ```
 
-Each notebook contains strategy-specific logic and parameters while the common engine handles implementation lag, rebalancing, transaction costs, weight drift, metrics, holdings, and persistence.
+Each strategy notebook defines strategy-specific logic and parameters. The shared engine in `src/quant_platform/` handles execution rules, implementation lag, rebalancing, transaction costs, weight drift, performance metrics, holdings, benchmark comparison, and persistence.
 
-To add a strategy, copy:
+A successful strategy run creates a `run_id` and writes its results to Unity Catalog.
+
+To create a custom strategy, copy:
 
 ```text
 notebooks/backtests/90_CUSTOM_STRATEGY_TEMPLATE.py
 ```
 
-and keep the contract:
+and implement the standard strategy interface:
 
 ```python
 def strategy(prices, params):
     return target_weights_dataframe
 ```
 
-A completed strategy run persists a `run_id`. When executed as a Databricks Job task, the same ID is also published as the task value `strategy_run_id` for downstream workflow tasks.
+The returned DataFrame uses dates as the index, asset symbols as columns, and target portfolio weights as values.
 
-## 3. Automated strategy flows
+## 3. Automated strategy workflows
 
 Use:
 
@@ -84,36 +85,41 @@ Use:
 notebooks/workflows/00_CONFIGURE_STRATEGY_FLOW.py
 ```
 
-The notebook creates a reusable Lakeflow Job around any selected strategy notebook, including custom strategies copied from the template.
+This notebook creates or updates a Databricks Lakeflow Job around any built-in or custom strategy notebook.
 
-Default job flow:
+The default automated flow is:
 
 ```text
 refresh market data
       ↓
 selected strategy
       ↓
-Monte Carlo baseline using strategy_run_id
+Monte Carlo — strategy allocation
       ↓
-portfolio optimization using the same strategy_run_id
+portfolio optimization
       ↓
-Monte Carlo using optimization_run_id
+Monte Carlo — optimized allocation
       ↓
-persist results for OpenBB
+persisted results
+      ↓
+optional Databricks App redeployment
 ```
 
-This means the optimizer does not silently switch to an unrelated symbol basket: in the automated flow it uses the selected strategy's latest effective allocation as the reference portfolio and its active symbols as the optimization universe.
+The optimizer receives the selected strategy's latest effective allocation and active asset universe. The strategy and optimization run identifiers are passed between Job tasks with Databricks task values.
 
-The committed defaults are:
+Default workflow settings:
 
-- refresh market data: enabled;
-- Monte Carlo: enabled before and after optimization;
-- portfolio optimization: enabled;
-- portfolio optimizer: **CPU**;
-- Databricks App redeployment: disabled;
-- schedule: manual `Run now` unless a Quartz cron expression is supplied.
+```text
+refresh market data      enabled
+strategy Monte Carlo     enabled
+portfolio optimization   enabled
+optimized Monte Carlo    enabled
+optimizer solver         CPU
+App redeployment         disabled
+schedule                 manual Run now
+```
 
-To include automatic App redeployment at the end, set `include_app_deploy=true`. The final task uses `notebooks/platform/04_DEPLOY_APP_AUTOMATED.py` and deploys the existing Databricks App from the repository. The App and its required resources must already exist.
+A Quartz cron expression can be supplied when scheduled execution is required.
 
 ## 4. Saved portfolios
 
@@ -123,98 +129,124 @@ Use:
 notebooks/portfolio/00_SAVE_PORTFOLIO.py
 ```
 
-A saved portfolio receives a persistent `portfolio_id` and dated holdings snapshots. Reuse the same `portfolio_id` when updating the portfolio.
+A saved portfolio receives a persistent `portfolio_id` and dated holdings snapshots. Reuse the same `portfolio_id` when updating an existing portfolio.
 
-## 5. Portfolio optimization
+Saved portfolios can be used directly by Monte Carlo or portfolio optimization.
 
-Portfolio optimization is solver-neutral at the operator level.
+## 5. Portfolio analysis
 
-Databricks route:
+Portfolio notebooks are located in:
+
+```text
+notebooks/portfolio/
+```
+
+Main workflow:
+
+```text
+00_SAVE_PORTFOLIO.py          save/update holdings
+01_COMPARE_RUNS.py            compare strategy backtests
+02_MONTE_CARLO.py             simulate portfolio outcomes
+03_OPTIMIZATION_RESULTS.py    inspect persisted optimization results
+04_PORTFOLIO_OPTIMIZATION_DATABRICKS.py
+                              run Mean-CVaR optimization in Databricks
+```
+
+### Monte Carlo sources
+
+`02_MONTE_CARLO.py` supports:
+
+- `saved_portfolio` — latest holdings for a `portfolio_id`;
+- `strategy_run` — latest effective allocation from a strategy `run_id`;
+- `optimization_run` — `selected_optimal` allocation from an `optimization_run_id`;
+- `adhoc` — manually supplied symbols and weights.
+
+Monte Carlo persists percentile curves, sample paths, terminal-value statistics, and summary risk measures.
+
+## 6. Portfolio optimization
+
+Databricks execution:
 
 ```text
 notebooks/portfolio/04_PORTFOLIO_OPTIMIZATION_DATABRICKS.py
 ```
 
-Remote/on-prem route:
+Remote or on-prem execution:
 
 ```text
 optimization/portfolio_optimization/PORTFOLIO_OPTIMIZATION.ipynb
 ```
 
-Shared non-secret settings:
+Shared configuration:
 
 ```text
 optimization/portfolio_optimization/portfolio_config.toml
 ```
 
-The committed solver setting is:
+Default solver:
 
 ```toml
 [execution]
 solver = "cpu"
 ```
 
-Solver modes:
+Supported modes:
 
-- `cpu` — CVXPY + CLARABEL with CPU return/scenario computation; no GPU required.
-- `gpu` — CVXPY + NVIDIA cuOpt with GPU return/scenario computation; requires a compatible NVIDIA/cuOpt environment.
+- `cpu` — CVXPY + CLARABEL with CPU scenario generation;
+- `gpu` — CVXPY + NVIDIA cuOpt with GPU scenario generation.
 
-The Databricks notebook can use the portfolio/symbols in `portfolio_config.toml`, or accept a `strategy_run` source so the optimization universe/reference allocation comes directly from a completed strategy run.
+CPU and GPU runs persist the same result schema and use the same result-review notebook.
 
-Both execution routes persist the same result tables and IDs. Review either type of run with:
+Optimization outputs include:
+
+- optimization run metadata;
+- Mean-CVaR efficient-frontier points;
+- frontier allocations;
+- the `selected_optimal` allocation;
+- covariance matrix entries;
+- historical optimizer backtest metrics;
+- optional rebalancing results.
+
+## 7. OpenBB Workspace
+
+The Databricks App under `databricks_app/` is the API backend used by OpenBB Workspace.
+
+Platform notebooks are located in:
 
 ```text
-notebooks/portfolio/03_OPTIMIZATION_RESULTS.py
+notebooks/platform/
 ```
-
-A successful run can persist an efficient frontier, selected allocation, covariance matrix, optimizer backtest metrics, and optional rebalancing output.
-
-## 6. Monte Carlo forward-risk validation
 
 Use:
 
 ```text
-notebooks/portfolio/02_MONTE_CARLO.py
+02_DEPLOY_APP.py             guided App deployment preparation
+03_OPENBB_WORKSPACE.py       verify the backend and OpenBB connection
+04_DEPLOY_APP_AUTOMATED.py   optional Job-driven App redeployment
 ```
-
-Supported allocation sources:
-
-- `saved_portfolio` — latest holdings for a `portfolio_id`;
-- `strategy_run` — latest effective allocation from a strategy `run_id`;
-- `optimization_run` — `selected_optimal` allocation from an optimization run;
-- `adhoc` — manually supplied weights.
-
-Monte Carlo persists percentile curves, sample paths, terminal-value statistics, and probability of loss under the selected simulation assumptions.
-
-## 7. OpenBB Workspace
-
-Platform notebooks:
-
-```text
-notebooks/platform/01_SERVING.py
-notebooks/platform/02_DEPLOY_APP.py
-notebooks/platform/03_OPENBB_WORKSPACE.py
-notebooks/platform/04_DEPLOY_APP_AUTOMATED.py
-```
-
-The Databricks App is the API backend; OpenBB Workspace remains the analyst-facing UI.
 
 Persisted OpenBB visualizations include:
 
 - strategy equity, benchmark, and drawdown curves;
 - portfolio-comparison curves;
-- Monte Carlo percentile fan chart;
+- Monte Carlo percentile fan charts;
 - Monte Carlo sample paths;
 - Mean-CVaR efficient frontier;
-- optimized allocation bar chart;
-- rebalancing portfolio-value curve;
-- associated run, holdings, metrics, and event tables.
+- optimized allocation chart;
+- portfolio rebalancing value curve;
+- associated holdings, runs, metrics, and events.
 
-The default automated flow produces both a strategy-allocation Monte Carlo run and an optimized-allocation Monte Carlo run, so both can be inspected alongside the optimization frontier in OpenBB.
+## 8. Optional serving
 
-## 8. Optional Serving
+Model Serving and Feature Serving are optional and are not required for ordinary strategy research, Monte Carlo, portfolio optimization, Jobs, or OpenBB display of persisted results.
 
-`notebooks/platform/01_SERVING.py` is only for Model Serving or Feature Serving. Backtests, Monte Carlo, portfolio optimization, automated Jobs, and OpenBB result viewing do not require Serving.
+Use:
+
+```text
+notebooks/platform/01_SERVING.py
+```
+
+only when low-latency model inference or online feature lookup is required.
 
 ## 9. Cleanup
 
@@ -224,7 +256,17 @@ Use:
 notebooks/99_CLEANUP.py
 ```
 
-The notebook discovers the canonical DBO_Quant namespace and requires an exact confirmation phrase before destructive operations. It can drop the DBO_Quant schema with `CASCADE` and optionally delete explicitly named Apps, Jobs, Serving endpoints, and an Online Feature Store. Shared parent catalogs, SQL Warehouses, Git folders, and unrelated compute are not deleted automatically.
+The cleanup notebook discovers the canonical DBO_Quant namespace and requires an exact confirmation phrase before destructive operations.
+
+It can remove:
+
+- the DBO_Quant schema and contained tables;
+- explicitly named Databricks Apps;
+- explicitly supplied Job IDs;
+- explicitly named Serving endpoints;
+- an explicitly named Online Feature Store.
+
+It does not automatically delete the parent Unity Catalog catalog, SQL Warehouses, Git folders, shared compute, or unrelated workspace resources.
 
 ## Repository layout
 
@@ -238,14 +280,14 @@ DBO_Quant/
 │   ├── portfolio/
 │   ├── workflows/
 │   └── platform/
-├── src/quant_platform/
-├── optimization/portfolio_optimization/
-├── nvidia_bridge/              internal external-writeback adapter
-├── sql/
-├── jobs/
-├── serving/
-├── databricks_app/
+├── src/quant_platform/                  shared research engine
+├── optimization/portfolio_optimization/ portfolio optimization integration
+├── nvidia_bridge/                       external optimization write-back adapter
+├── databricks_app/                      OpenBB API backend
+├── jobs/                                optional API-triggered workers
+├── serving/                             optional model/feature serving helpers
+├── sql/                                 Unity Catalog schema and migrations
 └── tests/
 ```
 
-Unity Catalog/Delta is the system of record. OpenBB ODP is the market-data abstraction. OpenBB Workspace is the analyst-facing interface.
+For subsystem-specific instructions, use the README in the corresponding directory.

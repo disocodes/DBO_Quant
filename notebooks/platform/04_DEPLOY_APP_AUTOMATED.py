@@ -106,13 +106,14 @@ else:
 # COMMAND ----------
 # MAGIC %md
 # MAGIC ## 5. Request the Workspace-Sourced Deployment
-# MAGIC Snapshot the already-cloned `databricks_app/` workspace folder and supply the canonical catalog/schema as runtime environment variables.
+# MAGIC Snapshot the already-cloned `databricks_app/` workspace folder and supply the SQL Warehouse resource binding plus the canonical catalog/schema as runtime environment variables.
 
 # COMMAND ----------
 body={
     'source_code_path': SOURCE_CODE_PATH,
     'mode': 'SNAPSHOT',
     'env_vars': [
+        {'name':'DATABRICKS_WAREHOUSE_ID','value_from':'sql_warehouse'},
         {'name':'FINANCE_CATALOG','value':CATALOG},
         {'name':'FINANCE_SCHEMA','value':SCHEMA},
     ],
@@ -121,6 +122,7 @@ body={
 print('App:',APP_NAME)
 print('Workspace source:',SOURCE_CODE_PATH)
 print('DBO_Quant namespace:',location.namespace)
+print('Runtime SQL warehouse binding: sql_warehouse -> DATABRICKS_WAREHOUSE_ID')
 
 response=w.api_client.do(
     'POST',

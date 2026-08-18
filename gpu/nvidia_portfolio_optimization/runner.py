@@ -5,6 +5,7 @@ import pandas as pd
 
 from .workflow import (
     backtest_optimized,
+    connect_databricks,
     load_current_portfolio,
     load_prices,
     optimize_and_frontier,
@@ -12,6 +13,46 @@ from .workflow import (
     run_monthly_rebalancing,
 )
 from nvidia_bridge import DatabricksOptimizationBridge, NvidiaAnalysisWriter
+
+MARKER_TABLE = "dbo_quant_project_config"
+
+
+def _resolve_external_location(
+    *,
+    http_path: str,
+    profile: str | None,
+    host: str | None,
+    auth_mode: str,
+    catalog: str | None,
+    schema: str | None,
+) -> tuple[str, str]:
+    if catalog and schema:
+        return catalog, schema
+    with connect_databricks(http_path, profile, host, auth_mode) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT table_catalog, table_schema
+                FROM system.information_schema.tables
+                WHERE table_name = '{MARKER_TABLE}'
+                  AND table_schema <> 'information_schema'
+                ORDER BY table_catalog, table_schema
+                """
+            )
+            rows = [(str(r[0]), str(r[1])) for r in cur.fetchall()]
+    unique = sorted(set(rows))
+    if not unique:
+        raise RuntimeError(
+            "No DBO_Quant deployment marker is visible. Run notebooks/00_SETUP.py first, "
+            "or set DBO_CATALOG and DBO_SCHEMA as an explicit override."
+        )
+    if len(unique) > 1:
+        choices = ", ".join(f"{c}.{s}" for c, s in unique)
+        raise RuntimeError(
+            f"Multiple DBO_Quant deployments are visible: {choices}. "
+            "Set DBO_CATALOG and DBO_SCHEMA to choose one explicitly."
+        )
+    return unique[0]
 
 
 def execute_gpu_analysis(
@@ -27,11 +68,6 @@ def execute_gpu_analysis(
     look_back_window: int = 126,
     look_forward_window: int = 21,
 ) -> dict:
-    """Run NVIDIA analysis on already-loaded price/portfolio data.
-
-    This function is transport-agnostic. Databricks notebooks can call it with
-    Spark-loaded data; external machines can call it with SQL-Warehouse-loaded data.
-    """
     require_nvidia_runtime()
     result_row, optimal_portfolio, returns_dict, frontier_df, frontier_fig, _ = optimize_and_frontier(
         prices,
@@ -46,11 +82,7 @@ def execute_gpu_analysis(
         index=tickers,
         name="optimized_weight",
     )
-    backtest_results = backtest_optimized(
-        returns_dict,
-        optimal_portfolio,
-        current_weights=current_weights,
-    )
+    backtest_results = backtest_optimized(returns_dict, optimal_portfolio, current_weights=current_weights)
 
     rebalance_results = None
     rebalance_dates = []
@@ -84,8 +116,8 @@ def execute_gpu_analysis(
 def run_gpu_workflow(
     *,
     http_path: str,
-    catalog: str,
-    schema: str = "openbb_quant",
+    catalog: str | None = None,
+    schema: str | None = None,
     profile: str | None = None,
     host: str | None = None,
     auth_mode: str = "auto",
@@ -102,16 +134,21 @@ def run_gpu_workflow(
     push_results: bool = True,
 ):
     """External/remote GPU route using a Databricks SQL Warehouse."""
+    catalog, schema = _resolve_external_location(
+        http_path=http_path,
+        profile=profile,
+        host=host,
+        auth_mode=auth_mode,
+        catalog=catalog,
+        schema=schema,
+    )
+    print(f"DBO_Quant namespace: {catalog}.{schema}")
+
     current_weights = None
     if portfolio_id:
         current_weights = load_current_portfolio(
-            http_path=http_path,
-            catalog=catalog,
-            schema=schema,
-            portfolio_id=portfolio_id,
-            profile=profile,
-            host=host,
-            auth_mode=auth_mode,
+            http_path=http_path, catalog=catalog, schema=schema, portfolio_id=portfolio_id,
+            profile=profile, host=host, auth_mode=auth_mode,
         )
         universe = list(current_weights.index)
     else:
@@ -120,13 +157,8 @@ def run_gpu_workflow(
         raise ValueError("Set portfolio_id or provide symbols")
 
     prices = load_prices(
-        http_path=http_path,
-        catalog=catalog,
-        schema=schema,
-        symbols=universe,
-        profile=profile,
-        host=host,
-        auth_mode=auth_mode,
+        http_path=http_path, catalog=catalog, schema=schema, symbols=universe,
+        profile=profile, host=host, auth_mode=auth_mode,
     )
     output = execute_gpu_analysis(
         prices=prices,
@@ -152,12 +184,7 @@ def run_gpu_workflow(
     tickers = list(returns_dict["tickers"])
 
     bridge = DatabricksOptimizationBridge(
-        http_path=http_path,
-        catalog=catalog,
-        schema=schema,
-        profile=profile,
-        host=host,
-        auth_mode=auth_mode,
+        http_path=http_path, catalog=catalog, schema=schema, profile=profile, host=host, auth_mode=auth_mode
     )
     writer = NvidiaAnalysisWriter(bridge)
     frontier_metrics = frontier_df.drop(columns=["weights"], errors="ignore").copy()
@@ -180,12 +207,8 @@ def run_gpu_workflow(
             weights = row["weights"]
             if isinstance(weights, dict):
                 bridge.push_allocation(
-                    optimization_run_id,
-                    weights,
-                    portfolio_label=f"frontier_{point_id:04d}",
-                    point_id=int(point_id),
-                    expected_return=row.get("return"),
-                    cvar=row.get("CVaR"),
+                    optimization_run_id, weights, portfolio_label=f"frontier_{point_id:04d}",
+                    point_id=int(point_id), expected_return=row.get("return"), cvar=row.get("CVaR"),
                     metadata={"risk_aversion": row.get("risk_aversion")},
                 )
     bridge.push_allocation(
@@ -196,11 +219,7 @@ def run_gpu_workflow(
         cvar=result_row.get("CVaR") if hasattr(result_row, "get") else None,
         metadata={"cash": float(np.asarray(optimal_portfolio.cash).squeeze())},
     )
-    covariance = pd.DataFrame(
-        np.asarray(returns_dict["covariance"], dtype=float),
-        index=tickers,
-        columns=tickers,
-    )
+    covariance = pd.DataFrame(np.asarray(returns_dict["covariance"], dtype=float), index=tickers, columns=tickers)
     bridge.push_matrix(optimization_run_id, covariance, matrix_name="covariance")
     writer.push_backtest_metrics(optimization_run_id, output["backtest_results"])
 
@@ -219,4 +238,6 @@ def run_gpu_workflow(
 
     output["optimization_run_id"] = optimization_run_id
     output["rebalance_run_id"] = rebalance_run_id
+    output["catalog"] = catalog
+    output["schema"] = schema
     return output

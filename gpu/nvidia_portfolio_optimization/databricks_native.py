@@ -9,6 +9,30 @@ import numpy as np
 import pandas as pd
 from pyspark.sql import functions as F
 
+MARKER_TABLE = "dbo_quant_project_config"
+
+
+def discover_location_spark(spark, *, catalog: str | None = None, schema: str | None = None) -> tuple[str, str]:
+    if catalog and schema:
+        spark.table(f"`{catalog}`.`{schema}`.`{MARKER_TABLE}`").limit(1).collect()
+        return catalog, schema
+    rows = spark.sql(
+        f"""
+        SELECT table_catalog, table_schema
+        FROM system.information_schema.tables
+        WHERE table_name = '{MARKER_TABLE}'
+          AND table_schema <> 'information_schema'
+        ORDER BY table_catalog, table_schema
+        """
+    ).collect()
+    unique = sorted(set((str(r[0]), str(r[1])) for r in rows))
+    if not unique:
+        raise RuntimeError("No DBO_Quant deployment marker found. Run notebooks/00_SETUP.py first.")
+    if len(unique) > 1:
+        choices = ", ".join(f"{c}.{s}" for c, s in unique)
+        raise RuntimeError(f"Multiple DBO_Quant deployments found: {choices}. Supply catalog/schema explicitly.")
+    return unique[0]
+
 
 def load_inputs_spark(spark, *, catalog: str, schema: str, portfolio_id: str = "", symbols: list[str] | None = None):
     current_weights = None

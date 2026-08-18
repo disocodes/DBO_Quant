@@ -4,6 +4,11 @@
 # MAGIC The Databricks App is the thin API layer between OpenBB Workspace and DBO_Quant. It is not another UI.
 
 # COMMAND ----------
+# MAGIC %md
+# MAGIC ## 1. Discover the Project and Configure App Resources
+# MAGIC Resolve the canonical DBO_Quant namespace and enter the SQL Warehouse ID and Databricks App name required by the API backend.
+
+# COMMAND ----------
 from pathlib import Path
 import sys
 repo_root=Path.cwd()
@@ -22,6 +27,11 @@ WAREHOUSE=dbutils.widgets.get('sql_warehouse_id').strip(); APP_NAME=dbutils.widg
 if not WAREHOUSE: raise ValueError('Enter the SQL Warehouse ID.')
 
 # COMMAND ----------
+# MAGIC %md
+# MAGIC ## 2. Review the Required App Configuration
+# MAGIC Print the exact App name, Unity Catalog namespace, SQL Warehouse resource, source folder, and Python entrypoint that should be configured in Databricks Apps.
+
+# COMMAND ----------
 print('APP CONFIGURATION')
 print('App name:',APP_NAME)
 print('Catalog:',CATALOG)
@@ -32,7 +42,7 @@ print('Entrypoint: databricks_app/app_entry.py')
 
 # COMMAND ----------
 # MAGIC %md
-# MAGIC ## Deploy in Databricks
+# MAGIC ## 3. Deploy the App in Databricks
 # MAGIC 1. Open **Apps** in Databricks and create the App.
 # MAGIC 2. Add a SQL Warehouse resource with key **`sql_warehouse`** and permission **Can use**.
 # MAGIC 3. In `databricks_app/app.yaml`, set `FINANCE_CATALOG` and `FINANCE_SCHEMA` to the values printed above.
@@ -41,6 +51,11 @@ print('Entrypoint: databricks_app/app_entry.py')
 # MAGIC 6. Wait for **RUNNING** and copy the App URL.
 # MAGIC
 # MAGIC Lakeflow Job IDs are optional and are required only when OpenBB forms should launch new calculations.
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 4. Verify the Deployment Target
+# MAGIC After deployment, test the widget-discovery endpoint and continue to the OpenBB Workspace connection notebook.
 
 # COMMAND ----------
 print('After deployment test: <APP_URL>/api/widgets.json')

@@ -8,10 +8,25 @@
 # MAGIC **Rerun:** if DBO_Quant is already installed, this notebook detects the existing deployment and reuses the same catalog/schema automatically. Existing tables and research data are preserved.
 
 # COMMAND ----------
+# MAGIC %md
+# MAGIC ## 1. Install Runtime Dependencies
+# MAGIC Install the pinned OpenBB, Databricks, data-processing, and visualization packages required by setup and the platform notebooks.
+
+# COMMAND ----------
 %pip install -q "openbb==4.7.2" "openbb-yfinance==1.6.3" "openbb-platform-api==1.3.6" "databricks-sdk>=0.50,<1" "databricks-sql-connector>=4,<5" "databricks-feature-engineering>=0.13.0" "pandas>=2.2,<3" "numpy>=1.26" "plotly>=6,<7"
 
 # COMMAND ----------
+# MAGIC %md
+# MAGIC ## 2. Restart Python
+# MAGIC Restart the notebook Python process so the newly installed packages are available to subsequent cells.
+
+# COMMAND ----------
 dbutils.library.restartPython()
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 3. Load the DBO_Quant Project
+# MAGIC Build the OpenBB extensions, locate the repository root, and import the project registry and canonical namespace-discovery helpers.
 
 # COMMAND ----------
 from pathlib import Path
@@ -33,6 +48,11 @@ from quant_platform.location import (
     DEFAULT_SCHEMA,
     discover_with_spark,
 )
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 4. Detect an Existing Deployment
+# MAGIC Search for the DBO_Quant marker table before presenting configuration defaults. Existing deployments are reused rather than silently duplicated.
 
 # COMMAND ----------
 # Detect an existing DBO_Quant deployment before choosing defaults.
@@ -57,6 +77,11 @@ else:
     print("Select an existing Unity Catalog catalog below. DBO_Quant will create its schema/tables there.")
 
 # COMMAND ----------
+# MAGIC %md
+# MAGIC ## 5. Select and Validate the Unity Catalog Namespace
+# MAGIC Configure the target catalog/schema, prevent accidental retargeting on reruns, and create the DBO_Quant schema inside the selected existing catalog.
+
+# COMMAND ----------
 dbutils.widgets.text("catalog", default_catalog, "Unity Catalog catalog for DBO_Quant")
 dbutils.widgets.text("schema", default_schema, "DBO_Quant schema")
 CATALOG = dbutils.widgets.get("catalog").strip()
@@ -76,6 +101,11 @@ if existing and (CATALOG != existing.catalog or SCHEMA != existing.schema):
 # DBO_Quant owns the schema and tables below it.
 spark.sql(f"DESCRIBE CATALOG `{CATALOG}`")
 spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{CATALOG}`.`{SCHEMA}`")
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 6. Apply Database Schema and Register the Project
+# MAGIC Execute the repository SQL definitions/migrations with idempotent semantics, then create the canonical DBO_Quant deployment marker only when it does not already exist.
 
 # COMMAND ----------
 # Apply schema definitions/migrations. The SQL uses IF NOT EXISTS for managed objects,
@@ -106,6 +136,11 @@ if marker_count == 0:
     print(f"Registered canonical DBO_Quant namespace: {CATALOG}.{SCHEMA}")
 else:
     print(f"Canonical DBO_Quant namespace already registered: {CATALOG}.{SCHEMA}")
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 7. Verify the Installation
+# MAGIC Confirm the required tables are readable, show the registered strategy catalogue, and print the next notebook in the workflow.
 
 # COMMAND ----------
 required = [

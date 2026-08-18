@@ -10,10 +10,25 @@
 # MAGIC The optimizer consumes the selected strategy's latest effective allocation/universe. Optional final step: redeploy the Databricks App from Git so OpenBB immediately sees the latest backend code. App deployment is disabled by default.
 
 # COMMAND ----------
+# MAGIC %md
+# MAGIC ## 1. Install the Databricks SDK
+# MAGIC Install a current SDK version used to create, inspect, and update Lakeflow Jobs from this notebook.
+
+# COMMAND ----------
 # MAGIC %pip install -q --upgrade "databricks-sdk>=0.74,<1"
 
 # COMMAND ----------
+# MAGIC %md
+# MAGIC ## 2. Restart Python
+# MAGIC Restart the Python process so the upgraded Databricks SDK is available before the workflow definition is built.
+
+# COMMAND ----------
 dbutils.library.restartPython()
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 3. Configure the Strategy Workflow
+# MAGIC Set the Job name, repository workspace path, strategy notebook, strategy parameters, optional research stages, schedule, timezone, and concurrency limit.
 
 # COMMAND ----------
 import json
@@ -52,6 +67,11 @@ if not JOB_NAME:
     raise ValueError('job_name is required')
 if not isinstance(STRATEGY_PARAMS,dict):
     raise ValueError('strategy_parameters_json must be a JSON object')
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 4. Build the Lakeflow Task Graph
+# MAGIC Construct the ordered notebook tasks, dependencies, and task-value handoffs for ingestion, the selected strategy, baseline Monte Carlo, portfolio optimization, optimized Monte Carlo, and optional App deployment.
 
 # COMMAND ----------
 def notebook_path(relative: str) -> str:
@@ -141,8 +161,8 @@ print(json.dumps(settings,indent=2))
 
 # COMMAND ----------
 # MAGIC %md
-# MAGIC ## Create or update the Job
-# MAGIC The exact `job_name` is the stable identity for this configuration notebook. If one Job with that name already exists, its settings are replaced. If none exists, a new Job is created. Multiple existing Jobs with the same name are rejected rather than guessed.
+# MAGIC ## 5. Create or Update the Lakeflow Job
+# MAGIC Use the exact `job_name` as the stable identity. Update the existing Job when exactly one match exists, create it when none exists, and reject duplicate-name ambiguity.
 
 # COMMAND ----------
 w=WorkspaceClient()
@@ -172,5 +192,5 @@ print('\nRun from Workflows > Jobs, or call w.jobs.run_now(job_id=...).')
 
 # COMMAND ----------
 # MAGIC %md
-# MAGIC ## OpenBB test path
+# MAGIC ## 6. OpenBB Test Path
 # MAGIC After a successful default run, Unity Catalog contains the strategy backtest, a Monte Carlo baseline for the strategy allocation, the CPU-default optimized allocation/frontier, and a second Monte Carlo simulation of that optimized allocation. If the DBO_Quant App is already deployed, refresh OpenBB Workspace widgets. If `include_app_deploy=true`, the final task requests a new App deployment from the repository automatically.

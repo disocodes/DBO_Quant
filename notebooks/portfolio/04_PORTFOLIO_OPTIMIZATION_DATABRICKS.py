@@ -3,19 +3,30 @@
 # MAGIC # Portfolio Optimization — Databricks
 # MAGIC Run Mean-CVaR portfolio optimization inside Databricks using either CPU or GPU.
 # MAGIC
-# MAGIC Solver selection comes from `optimization/portfolio_optimization/portfolio_config.toml`.
-# MAGIC `cpu` is the default and uses CVXPY + CLARABEL. `gpu` uses CVXPY + NVIDIA cuOpt.
-# MAGIC The canonical DBO_Quant Unity Catalog namespace is discovered automatically.
+# MAGIC Solver selection comes from `optimization/portfolio_optimization/portfolio_config.toml`. `cpu` is the default and uses CVXPY + CLARABEL; `gpu` uses CVXPY + NVIDIA cuOpt.
 # MAGIC
 # MAGIC By default the portfolio/universe comes from `portfolio_config.toml`. For automated strategy flows, set `source_type=strategy_run` and pass the strategy `run_id`; the optimizer then uses that run's latest effective allocation as its reference portfolio and universe.
-# MAGIC
-# MAGIC The base Portfolio Optimization package is pinned below so a fresh serverless CPU session is reproducible. GPU mode additionally requires the matching cuOpt/cuML CUDA packages in the selected Databricks environment.
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 1. Install the Portfolio Optimization Runtime
+# MAGIC Install the pinned upstream portfolio-optimization package used by DBO_Quant. This base package supports the CPU path; GPU execution additionally requires compatible cuOpt/cuML CUDA packages.
 
 # COMMAND ----------
 # MAGIC %pip install -q "git+https://github.com/NVIDIA-AI-Blueprints/portfolio-optimization.git@efa60ce29b7351cfda8fd4c9afb94b9d7fce482c"
 
 # COMMAND ----------
+# MAGIC %md
+# MAGIC ## 2. Restart Python
+# MAGIC Restart the Python process so the installed optimization package is available before project imports run.
+
+# COMMAND ----------
 dbutils.library.restartPython()
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 3. Load Configuration and Select the Optimization Source
+# MAGIC Locate the DBO_Quant repository, load shared optimizer settings, choose either configured portfolio inputs or a strategy-run allocation, validate the selected solver, and discover the canonical Unity Catalog namespace.
 
 # COMMAND ----------
 from pathlib import Path
@@ -46,6 +57,11 @@ print('Input source:',SOURCE_TYPE,SOURCE_ID or '')
 print('Portfolio config:',CFG)
 
 # COMMAND ----------
+# MAGIC %md
+# MAGIC ## 4. Load Inputs and Run Portfolio Optimization
+# MAGIC Load the price history and reference weights for the selected source, execute Mean-CVaR optimization with the configured CPU/GPU solver, and display the optimized allocation, frontier, backtest metrics, and optional rebalancing output.
+
+# COMMAND ----------
 prices,current_weights=load_inputs_spark(
     spark,
     catalog=CATALOG,
@@ -73,6 +89,11 @@ display(result['frontier'].head(CFG['frontier_points']))
 display(result['frontier_figure'])
 display(result['backtest_results'])
 if result['rebalance_results'] is not None: display(result['rebalance_results'])
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 5. Persist Results and Publish Workflow IDs
+# MAGIC Write the optimization outputs to the canonical DBO_Quant tables, publish `optimization_run_id` and `rebalance_run_id` as task values when running inside a Job, and print the next analysis step.
 
 # COMMAND ----------
 if CFG['push_results']:

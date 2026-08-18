@@ -4,6 +4,11 @@
 # MAGIC Create or update a real portfolio using a persistent `portfolio_id`. The saved portfolio can be used by Monte Carlo, portfolio optimization/rebalancing, and OpenBB.
 
 # COMMAND ----------
+# MAGIC %md
+# MAGIC ## 1. Load the Project and Configure Portfolio Inputs
+# MAGIC Discover the canonical DBO_Quant namespace and configure the portfolio identifier, name, base currency, allocation weights, and effective date.
+
+# COMMAND ----------
 from pathlib import Path
 from datetime import date, datetime, timezone
 import sys, json, uuid
@@ -28,6 +33,11 @@ if WEIGHTS.empty or WEIGHTS.isna().any(): raise ValueError('weights_json must co
 if abs(float(WEIGHTS.sum())-1.0)>1e-6: raise ValueError(f'Portfolio weights must sum to 1.0; received {WEIGHTS.sum():.6f}')
 
 # COMMAND ----------
+# MAGIC %md
+# MAGIC ## 2. Persist the Portfolio Definition and Holdings Snapshot
+# MAGIC Create the portfolio definition when it is new, replace any holdings snapshot for the same date, and append the validated allocation to Unity Catalog.
+
+# COMMAND ----------
 existing=spark.table(f'{CATALOG}.{SCHEMA}.portfolio_definitions').where(f"portfolio_id = '{PORTFOLIO_ID}'").count()
 if existing==0:
     now=datetime.now(timezone.utc).replace(tzinfo=None)
@@ -37,6 +47,11 @@ spark.sql(f"DELETE FROM `{CATALOG}`.`{SCHEMA}`.`portfolio_holdings` WHERE portfo
 now=datetime.now(timezone.utc).replace(tzinfo=None)
 rows=[{'portfolio_id':PORTFOLIO_ID,'as_of_date':AS_OF,'symbol':str(symbol).upper(),'weight':float(weight),'quantity':np.nan,'market_value':np.nan,'source':'manual_notebook','ingested_at':now} for symbol,weight in WEIGHTS.items()]
 spark.createDataFrame(pd.DataFrame(rows)).write.mode('append').saveAsTable(f'{CATALOG}.{SCHEMA}.portfolio_holdings')
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 3. Verify the Saved Portfolio
+# MAGIC Display the stored holdings and print the `portfolio_id` required by Monte Carlo and portfolio-optimization notebooks.
 
 # COMMAND ----------
 print('PORTFOLIO SAVED')

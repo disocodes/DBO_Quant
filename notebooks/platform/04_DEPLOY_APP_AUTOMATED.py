@@ -3,13 +3,28 @@
 # MAGIC # Platform — Automated App Deployment
 # MAGIC Optional final task for an automated research workflow.
 # MAGIC
-# MAGIC This performs a real Databricks App deployment from Git. The App must already exist and its required resources (for example the SQL Warehouse resource) must already be configured.
+# MAGIC This performs a real Databricks App deployment from Git. The App must already exist and its required resources, such as the SQL Warehouse resource, must already be configured.
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 1. Install the Databricks SDK
+# MAGIC Install a current Databricks SDK version that supports the Apps deployment APIs used by this notebook.
 
 # COMMAND ----------
 # MAGIC %pip install -q --upgrade "databricks-sdk>=0.74,<1"
 
 # COMMAND ----------
+# MAGIC %md
+# MAGIC ## 2. Restart Python
+# MAGIC Restart the Python process so the upgraded Databricks SDK is available before imports run.
+
+# COMMAND ----------
 dbutils.library.restartPython()
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 3. Discover the Project and Configure the Deployment Source
+# MAGIC Resolve the canonical DBO_Quant namespace and configure the existing App name, expected Git repository, branch, and repository subfolder to deploy.
 
 # COMMAND ----------
 from pathlib import Path
@@ -33,6 +48,11 @@ APP_NAME=dbutils.widgets.get('app_name').strip()
 GIT_URL=dbutils.widgets.get('git_url').strip()
 GIT_BRANCH=dbutils.widgets.get('git_branch').strip()
 APP_SOURCE=dbutils.widgets.get('app_source_path').strip().strip('/')
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 4. Validate the Existing App and Request Deployment
+# MAGIC Confirm the named Databricks App exists, build the Git deployment payload with the canonical catalog/schema environment variables, print the deployment target, and submit the deployment request.
 
 # COMMAND ----------
 w=WorkspaceClient()
@@ -70,6 +90,11 @@ response=w.api_client.do(
     body=body,
 )
 print('Deployment response:',response)
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 5. Publish the App URL for Downstream Use
+# MAGIC Read the App after the deployment request, print its OpenBB backend URL when available, and publish the URL as a Databricks task value for downstream workflow tasks.
 
 # COMMAND ----------
 app=w.apps.get(name=APP_NAME)

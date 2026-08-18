@@ -3,21 +3,18 @@
 command:
   - sh
   - -c
-  - 'openbb-build && openbb-api --app app.py --apps-json ./workspace_apps.json --host 0.0.0.0 --port "$DATABRICKS_APP_PORT"'
+  - 'openbb-build && openbb-api --app app_entry.py --apps-json ./workspace_apps.json --host 0.0.0.0 --port "$DATABRICKS_APP_PORT"'
 
 env:
-  # Add a SQL Warehouse App resource with resource key: sql_warehouse
   - name: DATABRICKS_WAREHOUSE_ID
     valueFrom: sql_warehouse
 
-  # Set this to the same catalog/schema used in notebooks/00_SETUP.py.
   - name: FINANCE_CATALOG
     value: REPLACE_WITH_YOUR_CATALOG
   - name: FINANCE_SCHEMA
     value: openbb_quant
 
-  # Optional production Job IDs. Leave blank for the first deployment.
-  # Add these later when you create Lakeflow Jobs from jobs/*.py.
+  # Optional production Job IDs. Manual notebooks work without these.
   - name: BACKTEST_JOB_ID
     value: ""
   - name: MONTE_CARLO_JOB_ID
@@ -25,6 +22,5 @@ env:
   - name: COMPARISON_JOB_ID
     value: ""
 
-  # Add provider secrets as Databricks App secret resources only when needed.
   - name: OPENBB_ALLOWED_ORIGINS
     value: https://pro.openbb.co

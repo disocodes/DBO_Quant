@@ -34,9 +34,33 @@ def discover_location_spark(spark, *, catalog: str | None = None, schema: str | 
     return unique[0]
 
 
-def load_inputs_spark(spark, *, catalog: str, schema: str, portfolio_id: str = "", symbols: list[str] | None = None):
+def load_inputs_spark(
+    spark,
+    *,
+    catalog: str,
+    schema: str,
+    portfolio_id: str = "",
+    strategy_run_id: str = "",
+    symbols: list[str] | None = None,
+):
+    """Load the optimization universe and optional current/reference weights.
+
+    Priority: strategy_run_id, saved portfolio_id, then configured symbols.
+    """
     current_weights = None
-    if portfolio_id:
+    if strategy_run_id:
+        holdings = spark.table(f"{catalog}.{schema}.strategy_holdings").where(F.col("run_id") == strategy_run_id)
+        latest = holdings.agg(F.max("date").alias("d")).first()["d"]
+        if latest is None:
+            raise ValueError(f"No holdings found for strategy run_id={strategy_run_id!r}")
+        pdf = holdings.where(F.col("date") == latest).select("symbol", "effective_weight").toPandas()
+        current_weights = pd.Series(dict(zip(pdf.symbol, pdf.effective_weight)), dtype=float)
+        current_weights = current_weights[current_weights.abs() > 1e-12]
+        if current_weights.empty or abs(float(current_weights.sum())) < 1e-12:
+            raise ValueError(f"Strategy run {strategy_run_id!r} has no usable latest effective allocation")
+        current_weights = current_weights / current_weights.sum()
+        universe = list(current_weights.index)
+    elif portfolio_id:
         holdings = spark.table(f"{catalog}.{schema}.portfolio_holdings").where(F.col("portfolio_id") == portfolio_id)
         latest = holdings.agg(F.max("as_of_date").alias("d")).first()["d"]
         if latest is None:
@@ -48,7 +72,7 @@ def load_inputs_spark(spark, *, catalog: str, schema: str, portfolio_id: str = "
     else:
         universe = [s.strip().upper() for s in (symbols or []) if s.strip()]
     if not universe:
-        raise ValueError("Set portfolio_id or symbols in portfolio_config.toml")
+        raise ValueError("Set strategy_run_id, portfolio_id, or symbols")
 
     prices = (
         spark.table(f"{catalog}.{schema}.prices_daily")
@@ -63,6 +87,11 @@ def load_inputs_spark(spark, *, catalog: str, schema: str, portfolio_id: str = "
     wide = wide.reindex(columns=universe).ffill().dropna(axis=1)
     if len(wide) < 60:
         raise ValueError("Need at least 60 usable price rows")
+    if current_weights is not None:
+        current_weights = current_weights.reindex(wide.columns).dropna()
+        if current_weights.empty:
+            raise ValueError("No reference weights remain after price-history filtering")
+        current_weights = current_weights / current_weights.sum()
     return wide, current_weights
 
 
@@ -81,6 +110,8 @@ def persist_result_spark(
     schema: str,
     result: dict,
     portfolio_id: str = "",
+    source_type: str = "config",
+    source_id: str = "",
     source_notebook: str = "notebooks/portfolio/04_PORTFOLIO_OPTIMIZATION_DATABRICKS.py",
     transaction_cost_factor: float = 0.0,
     look_back_window: int = 126,
@@ -99,6 +130,12 @@ def persist_result_spark(
         if solver == "cpu"
         else "NVIDIA-AI-Blueprints/portfolio-optimization:CVXPY-cuOpt"
     )
+    run_metadata = {
+        "execution_location": f"databricks_{solver}",
+        "solver": solver,
+        "input_source_type": source_type,
+        "input_source_id": source_id,
+    }
 
     run_pdf = pd.DataFrame([{
         "optimization_run_id": run_id,
@@ -109,7 +146,7 @@ def persist_result_spark(
         "status": "COMPLETED",
         "created_at": now,
         "completed_at": now,
-        "metadata_json": json.dumps({"execution_location": f"databricks_{solver}", "solver": solver}),
+        "metadata_json": json.dumps(run_metadata),
     }])
     spark.createDataFrame(run_pdf).write.mode("append").saveAsTable(f"{catalog}.{schema}.optimization_runs")
 
@@ -153,7 +190,7 @@ def persist_result_spark(
     rebalance_run_id=None
     if result.get("rebalance_results") is not None:
         rebalance_run_id=str(uuid.uuid4())
-        rr=pd.DataFrame([{"rebalance_run_id":rebalance_run_id,"optimization_run_id":run_id,"portfolio_id":portfolio_id or None,"source_engine":source_engine,"transaction_cost_factor":float(transaction_cost_factor),"look_back_window":int(look_back_window),"look_forward_window":int(look_forward_window),"created_at":now,"metadata_json":json.dumps({"execution_location":f"databricks_{solver}","solver":solver})}])
+        rr=pd.DataFrame([{"rebalance_run_id":rebalance_run_id,"optimization_run_id":run_id,"portfolio_id":portfolio_id or None,"source_engine":source_engine,"transaction_cost_factor":float(transaction_cost_factor),"look_back_window":int(look_back_window),"look_forward_window":int(look_forward_window),"created_at":now,"metadata_json":json.dumps(run_metadata)}])
         spark.createDataFrame(rr).write.mode("append").saveAsTable(f"{catalog}.{schema}.optimization_rebalance_runs")
         curve=pd.Series(result.get("rebalance_curve"))
         daily=[]

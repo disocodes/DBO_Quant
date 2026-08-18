@@ -12,9 +12,9 @@ notebooks/00_SETUP.py
 notebooks/01_INGEST_DATA.py
 ```
 
-`00_SETUP.py` installs the Databricks-side dependencies and applies every SQL migration in `sql/`. `01_INGEST_DATA.py` loads price history through OpenBB ODP into the canonical `prices_daily` table.
+`00_SETUP.py` installs Databricks-side dependencies and applies every SQL migration in `sql/`. `01_INGEST_DATA.py` loads price history through OpenBB ODP into `prices_daily`.
 
-After those two steps, choose the workflow you need. Setup does not need to be rerun for ordinary research.
+After these two steps, choose the research workflow you need. Setup does not need to be rerun for ordinary research.
 
 ## Strategy backtesting
 
@@ -33,7 +33,7 @@ notebooks/backtests/
 └── 90_CUSTOM_STRATEGY_TEMPLATE.py
 ```
 
-A strategy notebook contains only its research logic and parameters. All notebooks use the same engine for implementation lag, rebalancing, transaction costs, weight drift, performance metrics, holdings and persistence.
+A strategy notebook contains only its research logic and parameters. All strategy notebooks use the same engine for implementation lag, rebalancing, transaction costs, weight drift, performance metrics, holdings and persistence.
 
 Every completed backtest produces a `run_id` and writes to the common strategy result tables.
 
@@ -51,7 +51,7 @@ def strategy(prices, params):
 
 The returned DataFrame must use dates as the index and asset symbols as columns. Values are target portfolio weights.
 
-Do not modify the backtest engine for normal strategy development.
+Do not modify the common engine for ordinary strategy development.
 
 ## Portfolio analysis
 
@@ -59,38 +59,42 @@ Use the notebooks under `notebooks/portfolio/` after data ingestion.
 
 ```text
 notebooks/portfolio/
+├── 00_SAVE_PORTFOLIO.py
 ├── 01_COMPARE_RUNS.py
 ├── 02_MONTE_CARLO.py
 └── 03_NVIDIA_RESULTS.py
 ```
 
-- `01_COMPARE_RUNS.py` compares two or more saved backtest `run_id` values.
-- `02_MONTE_CARLO.py` runs forward simulations for explicit portfolio weights and is independent of strategy backtesting.
+- `00_SAVE_PORTFOLIO.py` creates a `portfolio_id` and stores a dated holdings snapshot. Run it again with the same `portfolio_id` and a new date to update the portfolio history.
+- `01_COMPARE_RUNS.py` compares two or more saved strategy `run_id` values.
+- `02_MONTE_CARLO.py` can use a saved `portfolio_id` or ad-hoc symbols/weights.
 - `03_NVIDIA_RESULTS.py` reviews optimization, backtest and rebalancing output pushed from the optional NVIDIA GPU workflow.
+
+A saved `portfolio_id` is the preferred way to represent a real portfolio across Databricks, NVIDIA optimization and OpenBB.
 
 ## Optional NVIDIA GPU portfolio optimization
 
 GPU optimization is a separate workflow. Databricks remains the system of record; the GPU computer is a compute worker.
 
 ```text
-Databricks prices / saved portfolio
-              │
-              ▼
-Remote or on-prem NVIDIA GPU
-NVIDIA portfolio-optimization + cuOpt
-              │
-        ┌─────┼─────────┐
-        ▼     ▼         ▼
-   optimization   backtest   rebalancing
-        │             │          │
-        └─────────────┴──────────┘
-                      │
-                      ▼
-              write results back
-                to Databricks
-                      │
-                      ▼
-            OpenBB Workspace
+Saved portfolio / Databricks prices
+               │
+               ▼
+ Remote or on-prem NVIDIA GPU
+ NVIDIA portfolio-optimization + cuOpt
+               │
+        ┌──────┼────────┐
+        ▼      ▼        ▼
+ optimization backtest rebalancing
+        │      │        │
+        └──────┴────────┘
+               │
+               ▼
+        write results back
+          to Databricks
+               │
+               ▼
+        OpenBB Workspace
 ```
 
 The derived notebook is:
@@ -102,9 +106,9 @@ gpu/nvidia_portfolio_optimization/DBO_NVIDIA_PORTFOLIO_OPTIMIZATION.ipynb
 Run it on a remote or on-prem Linux machine with a compatible NVIDIA GPU and NVIDIA's `portfolio-optimization` environment. The notebook can:
 
 - read DBO_Quant price history directly through a Databricks SQL Warehouse
-- optionally load the latest holdings for a saved `portfolio_id`
+- load the latest holdings for a saved `portfolio_id`, or use an ad-hoc symbol universe
 - run NVIDIA Mean-CVaR optimization with cuOpt
-- generate an efficient frontier
+- generate a 25-point efficient frontier by default
 - backtest the optimized allocation against equal weight and the current saved portfolio
 - optionally run dynamic monthly rebalancing
 - push frontier points, allocations, covariance data, backtest metrics and rebalancing output back to Databricks
@@ -119,7 +123,7 @@ After the GPU notebook finishes, copy its `optimization_run_id` into:
 notebooks/portfolio/03_NVIDIA_RESULTS.py
 ```
 
-The same persisted outputs are exposed to OpenBB Workspace through the DBO_Quant App.
+The same saved portfolio, optimizer outputs and rebalancing results are exposed to OpenBB Workspace through the DBO_Quant App.
 
 ## Platform deployment
 
@@ -150,6 +154,9 @@ Run a strategy
 Compare saved strategies
     notebooks/portfolio/01_COMPARE_RUNS.py
 
+Save/update a real portfolio
+    notebooks/portfolio/00_SAVE_PORTFOLIO.py
+
 Run Monte Carlo
     notebooks/portfolio/02_MONTE_CARLO.py
 
@@ -173,7 +180,7 @@ DBO_Quant/
 │   ├── 00_SETUP.py
 │   ├── 01_INGEST_DATA.py
 │   ├── backtests/          # one notebook per strategy
-│   ├── portfolio/          # comparison, Monte Carlo, NVIDIA result review
+│   ├── portfolio/          # saved portfolios, comparison, Monte Carlo, NVIDIA results
 │   └── platform/           # Serving, App, OpenBB connection
 ├── src/quant_platform/     # common backtest/Monte Carlo/research engine
 ├── sql/                    # Unity Catalog schema and migrations
@@ -209,4 +216,4 @@ engine                                  optional
           OpenBB Workspace
 ```
 
-OpenBB ODP is a permanent component. Unity Catalog/Delta is the system of record. The Databricks App is an API gateway, not another UI.
+OpenBB ODP is permanent. Unity Catalog/Delta is the system of record. The Databricks App is an API gateway, not another UI.

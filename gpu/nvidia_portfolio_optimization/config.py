@@ -50,17 +50,16 @@ def load_portfolio_config(repo_root: Path | None = None) -> dict:
 def load_external_connection(repo_root: Path | None = None, interactive: bool = True) -> dict:
     """Resolve external Databricks connection settings.
 
-    Existing Databricks profile/env is preferred. If no profile is configured,
-    workspace URL + SQL Warehouse HTTP path can be supplied interactively and
-    OAuth U2M browser sign-in is used.
+    Catalog/schema are optional overrides. If omitted, DBO_Quant discovers the
+    canonical deployment created by notebooks/00_SETUP.py after authentication.
     """
     root = repo_root or find_repo_root()
     _load_env_file(root / ".env")
     profile = os.getenv("DATABRICKS_PROFILE", "").strip() or None
     host = os.getenv("DATABRICKS_HOST", "").strip() or None
     http_path = os.getenv("DATABRICKS_HTTP_PATH", "").strip()
-    catalog = os.getenv("DBO_CATALOG", "").strip()
-    schema = os.getenv("DBO_SCHEMA", "openbb_quant").strip() or "openbb_quant"
+    catalog = os.getenv("DBO_CATALOG", "").strip() or None
+    schema = os.getenv("DBO_SCHEMA", "").strip() or None
 
     if interactive and not profile:
         if not host:
@@ -69,11 +68,6 @@ def load_external_connection(repo_root: Path | None = None, interactive: bool = 
             http_path = input("SQL Warehouse HTTP path (/sql/1.0/warehouses/...): ").strip()
     if not http_path:
         raise ValueError("A SQL Warehouse HTTP path is required for the external GPU route")
-    if not catalog:
-        if interactive:
-            catalog = input("Unity Catalog catalog name: ").strip()
-        if not catalog:
-            raise ValueError("Catalog is required")
 
     return {
         "http_path": http_path,

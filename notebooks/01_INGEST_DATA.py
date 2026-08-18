@@ -1,15 +1,30 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # 01 — Ingest Market Data with OpenBB ODP
-# MAGIC **Prerequisite:** `00_SETUP.py`. The canonical DBO_Quant catalog/schema is discovered automatically from setup.
+# MAGIC Load historical market data through OpenBB, normalize it into the DBO_Quant price schema, and upsert it into Unity Catalog.
 # MAGIC
-# MAGIC Databricks serverless notebook sessions do not guarantee that Python packages installed by another notebook remain available. This notebook therefore installs its own pinned OpenBB ingestion dependencies before importing `openbb`.
+# MAGIC **Prerequisite:** `00_SETUP.py`. The canonical DBO_Quant catalog/schema is discovered automatically from setup.
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 1. Install OpenBB Ingestion Packages
+# MAGIC Install the pinned OpenBB core and YFinance provider required by this notebook on fresh Databricks serverless sessions.
 
 # COMMAND ----------
 # MAGIC %pip install -q "openbb==4.7.2" "openbb-yfinance==1.6.3"
 
 # COMMAND ----------
+# MAGIC %md
+# MAGIC ## 2. Restart Python
+# MAGIC Restart the Python process so the newly installed OpenBB packages are available before imports run.
+
+# COMMAND ----------
 dbutils.library.restartPython()
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 3. Load OpenBB and DBO_Quant Helpers
+# MAGIC Import OpenBB, Delta Lake utilities, data-processing libraries, and canonical DBO_Quant namespace discovery.
 
 # COMMAND ----------
 from pathlib import Path
@@ -25,6 +40,11 @@ sys.path.insert(0,str(repo_root/'src'))
 from quant_platform.location import discover_with_spark
 
 # COMMAND ----------
+# MAGIC %md
+# MAGIC ## 4. Configure the Data Request
+# MAGIC Discover the canonical Unity Catalog namespace and configure the OpenBB provider, symbols, and historical date range to ingest.
+
+# COMMAND ----------
 location=discover_with_spark(spark)
 CATALOG,SCHEMA=location.catalog,location.schema
 print('DBO_Quant namespace:',location.namespace)
@@ -37,6 +57,11 @@ SYMBOLS=[x.strip().upper() for x in dbutils.widgets.get("symbols").split(",") if
 START_DATE=dbutils.widgets.get("start_date"); END_DATE=dbutils.widgets.get("end_date")
 try: spark.table(f"{CATALOG}.{SCHEMA}.prices_daily").limit(1).collect()
 except Exception: raise RuntimeError("Setup is missing. Run notebooks/00_SETUP.py first.")
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 5. Fetch, Normalize, and Upsert Prices
+# MAGIC Retrieve each symbol through OpenBB ODP, normalize provider-specific fields to the DBO_Quant schema, and merge the rows into `prices_daily` without duplicating existing dates.
 
 # COMMAND ----------
 def first_col(df,names):
@@ -59,6 +84,11 @@ for symbol in SYMBOLS:
     sdf=spark.createDataFrame(pdf)
     (target.alias("t").merge(sdf.alias("s"),"t.symbol=s.symbol AND t.date=s.date AND t.provider=s.provider").whenMatchedUpdateAll().whenNotMatchedInsertAll().execute())
     print(f"{symbol}: {len(pdf):,} rows fetched")
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 6. Verify Ingested Coverage
+# MAGIC Summarize the stored date coverage by symbol and confirm the ingestion step is complete before strategy research begins.
 
 # COMMAND ----------
 summary=(spark.table(f"{CATALOG}.{SCHEMA}.prices_daily").where(f"provider='{PROVIDER}'").groupBy("symbol").agg({"date":"min"}).withColumnRenamed("min(date)","first_date"))

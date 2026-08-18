@@ -59,6 +59,10 @@ notebooks/01_INGEST_DATA.py
 
 `01_INGEST_DATA.py` discovers the canonical namespace and writes OpenBB ODP market data to `prices_daily`.
 
+### Databricks serverless note
+
+Serverless notebook sessions do not guarantee that Python libraries installed by another notebook remain available in a later session. `01_INGEST_DATA.py` therefore installs its own pinned OpenBB ingestion dependencies (`openbb==4.7.2` and `openbb-yfinance==1.6.3`) before importing `openbb`, then restarts the Python process. This makes the ingestion notebook self-contained on fresh serverless compute.
+
 ## 2. Strategy research
 
 Each strategy is a separate notebook in `notebooks/backtests/`.

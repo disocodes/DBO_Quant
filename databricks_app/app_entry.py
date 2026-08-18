@@ -37,6 +37,34 @@ def saved_portfolio_holdings(portfolio_id: str) -> list[dict]:
 
 
 @app.get(
+    "/api/quant/optimization/cvar-frontier",
+    openapi_extra={"widget_config": {"type": "chart", "name": "Mean-CVaR Efficient Frontier", "category": "Portfolio Lab"}},
+)
+def cvar_frontier(optimization_run_id: str) -> dict:
+    rows = query_records(
+        f"SELECT point_id, expected_return, cvar, risk_aversion FROM {fq('efficient_frontier')} WHERE optimization_run_id = ? AND cvar IS NOT NULL ORDER BY point_id",
+        [optimization_run_id],
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="No CVaR frontier found for optimization_run_id")
+    return {
+        "data": [{
+            "type": "scatter",
+            "mode": "lines+markers",
+            "name": "Mean-CVaR Frontier",
+            "x": [r["cvar"] for r in rows],
+            "y": [r["expected_return"] for r in rows],
+            "text": [f"Risk aversion={r.get('risk_aversion')}" for r in rows],
+        }],
+        "layout": {
+            "title": "Mean-CVaR Efficient Frontier",
+            "xaxis": {"title": "CVaR", "tickformat": ".1%"},
+            "yaxis": {"title": "Expected Return", "tickformat": ".1%"},
+        },
+    }
+
+
+@app.get(
     "/api/quant/optimization/backtest-metrics",
     openapi_extra={"widget_config": {"name": "Optimizer Backtest Metrics", "category": "Portfolio Lab"}},
 )

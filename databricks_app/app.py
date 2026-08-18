@@ -151,10 +151,14 @@ def _workspace_widget_definitions() -> dict[str,Any]:
     return _strip_databricks_api_prefix(definitions)
 
 @app.get("/api/widgets.json",include_in_schema=False)
-def api_widgets_json()->dict[str,Any]: return _workspace_widget_definitions()
+async def api_widgets_json()->dict[str,Any]:
+    # OpenBB's non-root widget merger awaits discovery-route endpoints directly.
+    return _workspace_widget_definitions()
 
 @app.get("/api/apps.json",include_in_schema=False)
-def api_apps_json()->list[dict[str,Any]]: return []
+async def api_apps_json()->list[dict[str,Any]]:
+    # OpenBB's non-root app merger awaits discovery-route endpoints directly.
+    return []
 
 @app.get("/api/quant/health",openapi_extra={"widget_config":{"exclude":True}})
 def quant_health()->dict:

@@ -1,56 +1,125 @@
-# Portfolio analysis notebooks
+# Portfolio Analysis
 
-Run `notebooks/00_SETUP.py` once and keep `notebooks/01_INGEST_DATA.py` current before using this folder.
+This folder contains the portfolio-level research notebooks used after market data and strategy results are available in Unity Catalog.
 
-## Flow
+## Prerequisites
+
+Run:
 
 ```text
-Saved portfolio
-00_SAVE_PORTFOLIO.py
-      ↓
- portfolio_id
-      ├─→ 02_MONTE_CARLO.py
-      │
-      └─→ 04_PORTFOLIO_OPTIMIZATION_DATABRICKS.py
-                ↓
-        optimization_run_id
-                ├─→ 03_OPTIMIZATION_RESULTS.py
-                └─→ 02_MONTE_CARLO.py
-                     source_type=optimization_run
-
-Strategy notebook
-../backtests/*.py
-      ↓
-    run_id
-      ├─→ 01_COMPARE_RUNS.py
-      └─→ 02_MONTE_CARLO.py
-           source_type=strategy_run
+notebooks/00_SETUP.py
+notebooks/01_INGEST_DATA.py
 ```
 
-## Notebook roles
+before using these notebooks.
 
-### `00_SAVE_PORTFOLIO.py`
-Creates or updates a portfolio using a persistent `portfolio_id` and dated holdings snapshots.
+## Notebook map
 
-### `01_COMPARE_RUNS.py`
-Compares two or more historical strategy runs and persists a common comparison.
+```text
+00_SAVE_PORTFOLIO.py
+    save or update portfolio holdings
 
-### `02_MONTE_CARLO.py`
-Forward-risk validation for an existing allocation. Sources are saved portfolios, strategy runs, optimization runs, or ad-hoc weights. It persists percentile curves and sample paths; it does not optimize weights.
+01_COMPARE_RUNS.py
+    compare two or more strategy backtests
 
-### `03_OPTIMIZATION_RESULTS.py`
-Reviews any persisted portfolio-optimization result. CPU and GPU runs use the same tables and IDs, so the operator does not need separate result notebooks.
+02_MONTE_CARLO.py
+    simulate forward portfolio outcomes
 
-### `04_PORTFOLIO_OPTIMIZATION_DATABRICKS.py`
-Runs Mean-CVaR portfolio optimization inside Databricks. Solver selection comes from:
+03_OPTIMIZATION_RESULTS.py
+    inspect persisted optimization results
+
+04_PORTFOLIO_OPTIMIZATION_DATABRICKS.py
+    run Mean-CVaR portfolio optimization in Databricks
+```
+
+## Saved portfolio workflow
+
+```text
+00_SAVE_PORTFOLIO.py
+      ↓
+portfolio_id
+      ├──────────────→ 02_MONTE_CARLO.py
+      │                 source_type=saved_portfolio
+      │
+      └──────────────→ 04_PORTFOLIO_OPTIMIZATION_DATABRICKS.py
+                              ↓
+                       optimization_run_id
+                              ├────────→ 03_OPTIMIZATION_RESULTS.py
+                              └────────→ 02_MONTE_CARLO.py
+                                         source_type=optimization_run
+```
+
+`00_SAVE_PORTFOLIO.py` creates or updates dated holdings under a persistent `portfolio_id`.
+
+## Strategy-result workflow
+
+```text
+notebooks/backtests/*.py
+      ↓
+run_id
+      ├────────→ 01_COMPARE_RUNS.py
+      ├────────→ 02_MONTE_CARLO.py
+      │           source_type=strategy_run
+      └────────→ 04_PORTFOLIO_OPTIMIZATION_DATABRICKS.py
+                  source_type=strategy_run
+```
+
+## Monte Carlo
+
+`02_MONTE_CARLO.py` evaluates an allocation under forward simulation. It does not calculate optimal weights.
+
+Supported sources:
+
+- `saved_portfolio` — latest holdings for a `portfolio_id`;
+- `strategy_run` — latest effective allocation from a strategy `run_id`;
+- `optimization_run` — `selected_optimal` allocation from an optimization run;
+- `adhoc` — manually supplied symbols and weights.
+
+The notebook persists:
+
+- run metadata;
+- percentile curves;
+- sampled simulation paths;
+- terminal-value statistics;
+- probability-of-loss summary data.
+
+## Portfolio optimization
+
+Run:
+
+```text
+04_PORTFOLIO_OPTIMIZATION_DATABRICKS.py
+```
+
+for Databricks-native Mean-CVaR optimization.
+
+Shared configuration is stored in:
 
 ```text
 optimization/portfolio_optimization/portfolio_config.toml
 ```
 
-The committed default is `solver = "cpu"`, using CVXPY + CLARABEL. Set `solver = "gpu"` to use CVXPY + NVIDIA cuOpt on compatible GPU compute.
+Default execution mode:
 
-## Remote/on-prem optimization
+```toml
+[execution]
+solver = "cpu"
+```
+
+Supported modes:
+
+- `cpu` — CVXPY + CLARABEL;
+- `gpu` — CVXPY + NVIDIA cuOpt.
+
+Both modes persist the same tables and return an `optimization_run_id`.
+
+Review persisted results with:
+
+```text
+03_OPTIMIZATION_RESULTS.py
+```
+
+## Remote or on-prem optimization
 
 Use:
 
@@ -58,24 +127,33 @@ Use:
 optimization/portfolio_optimization/PORTFOLIO_OPTIMIZATION.ipynb
 ```
 
-It uses the same configuration and writes the same result tables as the Databricks route.
+The external route uses the same portfolio configuration and writes the same optimization result model as the Databricks route.
 
-## Recommended decision flow
+## Recommended analysis sequence
 
 ```text
-Current portfolio or strategy allocation
+current portfolio or strategy allocation
           ↓
 Monte Carlo baseline
           ↓
-optional portfolio optimization
+portfolio optimization
           ↓
 selected_optimal allocation
           ↓
 Monte Carlo validation
           ↓
-OpenBB comparison and review
+OpenBB review
 ```
 
 ## OpenBB outputs
 
-The Databricks App exposes saved holdings, strategy comparison curves, Monte Carlo fan/sample-path charts, the Mean-CVaR efficient frontier, optimized allocation chart, optimizer metrics, and rebalancing outputs.
+The Databricks App exposes:
+
+- saved holdings;
+- strategy-comparison metrics and curves;
+- Monte Carlo fan charts;
+- Monte Carlo sample paths;
+- Mean-CVaR efficient frontier;
+- optimized allocation chart;
+- optimization backtest metrics;
+- rebalancing runs, events, and portfolio-value curve.

@@ -1,5 +1,6 @@
 # DBO_Quant OpenBB API App
-# First deployment requires only a SQL Warehouse resource.
+# First deployment requires only a SQL Warehouse resource plus the canonical
+# DBO_Quant catalog/schema printed by notebooks/platform/02_DEPLOY_APP.py.
 command:
   - sh
   - -c
@@ -12,9 +13,10 @@ env:
   - name: FINANCE_CATALOG
     value: REPLACE_WITH_YOUR_CATALOG
   - name: FINANCE_SCHEMA
-    value: openbb_quant
+    value: REPLACE_WITH_YOUR_SCHEMA
 
-  # Optional production Job IDs. Manual notebooks work without these.
+  # Optional production Job IDs. Interactive notebooks and saved-result widgets
+  # work without these.
   - name: BACKTEST_JOB_ID
     value: ""
   - name: MONTE_CARLO_JOB_ID

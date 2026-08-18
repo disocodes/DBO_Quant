@@ -2,29 +2,37 @@
 
 This folder is the thin API backend for OpenBB Workspace. It is not a research notebook environment and does not provide a second dashboard.
 
-Use the guided deployment notebook:
+## Purpose
+
+The App reads persisted DBO_Quant results from Unity Catalog through a Databricks SQL Warehouse and exposes them as OpenBB-compatible API routes and dynamically generated widgets.
+
+## Deployment options
+
+Guided/manual preparation:
 
 ```text
 notebooks/platform/02_DEPLOY_APP.py
 ```
 
-## Purpose
+Optional automated redeployment:
 
-The App reads persisted DBO_Quant results from Unity Catalog through a Databricks SQL Warehouse and exposes them as OpenBB-compatible API routes and dynamically generated widgets.
+```text
+notebooks/platform/04_DEPLOY_APP_AUTOMATED.py
+```
 
-## First deployment
+The automated strategy flow can include the latter as its final task by setting `include_app_deploy=true`. It is disabled by default.
 
-Prerequisites:
+## First deployment prerequisites
 
 1. `notebooks/00_SETUP.py` has completed successfully.
 2. Research data/results exist in the canonical DBO_Quant namespace.
 3. A Databricks SQL Warehouse is available.
-4. A Databricks App is created using `databricks_app/` as its source.
+4. A Databricks App is created for this backend.
 5. The App has a SQL Warehouse resource with key `sql_warehouse` and `CAN USE` permission.
-6. `FINANCE_CATALOG` and `FINANCE_SCHEMA` match the canonical namespace printed by the deployment notebook.
+6. `FINANCE_CATALOG` and `FINANCE_SCHEMA` match the canonical DBO_Quant namespace.
 7. The App service principal has `USE CATALOG`, `USE SCHEMA`, and `SELECT` permissions for the DBO_Quant schema.
 
-The launcher uses `app_entry.py`, which imports the core API and registers the portfolio/NVIDIA routes before OpenBB widget discovery.
+The launcher uses `app_entry.py`, which imports the core API and registers portfolio-analysis routes before OpenBB widget discovery.
 
 ## OpenBB visualization routes
 
@@ -36,7 +44,7 @@ The App exposes chart-ready persisted outputs including:
 - Monte Carlo sample paths;
 - Mean-CVaR efficient frontier;
 - optimized allocation bar chart;
-- NVIDIA rebalancing portfolio-value curve.
+- portfolio rebalancing value curve.
 
 It also exposes saved portfolio holdings, run metadata, optimizer metrics, rebalancing events, features, predictions, and other table-style results.
 
@@ -60,9 +68,9 @@ Continue with:
 notebooks/platform/03_OPENBB_WORKSPACE.py
 ```
 
-## Optional Jobs
+## Jobs
 
-Lakeflow Jobs are not required to view persisted results. Add the backtest, Monte Carlo, and comparison Jobs only when OpenBB forms should launch calculations remotely.
+Lakeflow Jobs are not required merely to view persisted results. `notebooks/workflows/00_CONFIGURE_STRATEGY_FLOW.py` creates a reproducible research Job that can refresh data, run a selected strategy, pass its `strategy_run_id` to Monte Carlo, run CPU-default portfolio optimization, and optionally redeploy this App.
 
 ## Cleanup
 

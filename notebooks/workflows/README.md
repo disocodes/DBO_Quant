@@ -1,42 +1,77 @@
-# Automated workflows
+# Automated Strategy Workflows
 
-Use this folder to turn reproducible DBO_Quant notebook research into Databricks Lakeflow Jobs.
+This folder contains Databricks notebooks that create and manage reproducible Lakeflow Jobs for DBO_Quant research.
 
-## `00_CONFIGURE_STRATEGY_FLOW.py`
+## Main notebook
 
-Creates a multi-task Job around any selected strategy notebook, including a custom strategy copied from `notebooks/backtests/90_CUSTOM_STRATEGY_TEMPLATE.py`.
+```text
+notebooks/workflows/00_CONFIGURE_STRATEGY_FLOW.py
+```
 
-Default flow:
+The notebook creates or updates one exact-name Lakeflow Job around a selected strategy notebook.
+
+It supports:
+
+- any built-in strategy notebook;
+- any custom strategy copied from `notebooks/backtests/90_CUSTOM_STRATEGY_TEMPLATE.py`;
+- manual `Run now` execution;
+- scheduled execution with a Quartz cron expression;
+- downstream task handoff through Databricks task values;
+- optional Databricks App redeployment.
+
+## Default workflow
 
 ```text
 01_INGEST_DATA
       ↓
 selected strategy notebook
       ↓
-strategy_run_id task value
+strategy_run_id
       ↓
-Monte Carlo — strategy allocation baseline
+02_MONTE_CARLO
+source_type=strategy_run
       ↓
-Portfolio Optimization
-input = same strategy_run_id
-solver = CPU by default
+04_PORTFOLIO_OPTIMIZATION_DATABRICKS
+source_type=strategy_run
+solver=cpu by default
       ↓
-optimization_run_id task value
+optimization_run_id
       ↓
-Monte Carlo — optimized allocation
+02_MONTE_CARLO
+source_type=optimization_run
       ↓
 persisted Unity Catalog results
       ↓
-optional automated App deployment
-      ↓
-OpenBB Workspace
+optional App redeployment
 ```
 
-This produces an apples-to-apples research sequence: the optimizer receives the selected strategy's latest effective allocation/universe, and Monte Carlo evaluates both the strategy allocation and the resulting optimized allocation.
+The optimization task uses the selected strategy's latest effective allocation as its reference allocation and the strategy's active assets as its optimization universe.
 
-### Required configuration
+## Required configuration
 
-Set `repo_workspace_root` to the absolute Databricks workspace path of the DBO_Quant Git folder. `strategy_notebook` is relative to that root. Any strategy widget values can be passed with `strategy_parameters_json`.
+### `repo_workspace_root`
+
+Absolute Databricks workspace path of the DBO_Quant Git folder.
+
+Example:
+
+```text
+/Workspace/Users/user@example.com/DBO_Quant
+```
+
+### `strategy_notebook`
+
+Repository-relative path to the strategy notebook.
+
+Example:
+
+```text
+notebooks/backtests/02_INVERSE_VOLATILITY.py
+```
+
+### `strategy_parameters_json`
+
+JSON object containing widget values that should be supplied to the strategy task.
 
 Example:
 
@@ -48,27 +83,88 @@ Example:
 }
 ```
 
-The strategy notebook can be any built-in notebook or a copied custom strategy template, provided it uses the shared DBO_Quant research engine and therefore publishes `strategy_run_id`.
+Only parameters supported by the selected notebook should be supplied.
 
-### Scheduling
+## Default switches
 
-Leave `cron_expression` blank for a manually triggered Job. To automate runs, provide a Databricks Quartz cron expression and a `timezone_id`.
+```text
+include_ingest        true
+include_monte_carlo   true
+include_optimization  true
+include_app_deploy    false
+```
 
-### Portfolio optimization
+With these defaults, one Job run produces:
 
-The Job uses `optimization/portfolio_optimization/portfolio_config.toml`. The committed default is CPU:
+1. refreshed market data;
+2. one strategy backtest;
+3. one Monte Carlo run for the strategy allocation;
+4. one portfolio-optimization run;
+5. one Monte Carlo run for the optimized allocation.
+
+## Scheduling
+
+Leave `cron_expression` empty for a manually triggered Job.
+
+For scheduled execution, provide:
+
+- a Databricks Quartz cron expression;
+- the required `timezone_id`.
+
+The default timezone is `Australia/Perth`.
+
+## Job updates
+
+If exactly one Job already exists with the configured `job_name`, the notebook updates that Job definition.
+
+If no matching Job exists, a new Job is created.
+
+If multiple Jobs share the exact name, the notebook stops rather than choosing one automatically.
+
+## Portfolio optimization
+
+The optimization task reads:
+
+```text
+optimization/portfolio_optimization/portfolio_config.toml
+```
+
+The committed default is:
 
 ```toml
 [execution]
 solver = "cpu"
 ```
 
-CPU mode uses CVXPY + CLARABEL. Change the setting to `gpu` only when the optimization task is configured on compatible GPU compute with cuOpt/cuML available.
+CPU mode uses CVXPY + CLARABEL. GPU mode requires compatible GPU compute and the required NVIDIA cuOpt/cuML packages.
 
-### App deployment
+## App redeployment
 
-`include_app_deploy=false` is the safe default. Set it to `true` only after the Databricks App exists and its SQL Warehouse/Git resources are configured. The final task then requests a new deployment from the repository.
+App redeployment is disabled by default.
 
-### OpenBB
+Set:
 
-The Job does not create a second dashboard. Each research task persists results to Unity Catalog. The DBO_Quant App exposes the strategy curves, both Monte Carlo runs, optimization frontier/allocation, and optional rebalancing output to OpenBB Workspace.
+```text
+include_app_deploy = true
+```
+
+only after the Databricks App already exists and its required Git, SQL Warehouse, permissions, and App resources are configured.
+
+The final task uses:
+
+```text
+notebooks/platform/04_DEPLOY_APP_AUTOMATED.py
+```
+
+## OpenBB results
+
+Research tasks persist their outputs to Unity Catalog. The Databricks App then exposes those results to OpenBB Workspace.
+
+A complete default workflow can produce OpenBB-ready:
+
+- strategy equity and drawdown curves;
+- strategy metrics;
+- Monte Carlo baseline fan chart and sample paths;
+- efficient frontier and optimized allocation;
+- optimization metrics;
+- Monte Carlo fan chart and sample paths for the optimized allocation.

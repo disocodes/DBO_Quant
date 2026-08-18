@@ -1,0 +1,165 @@
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+
+from .workflow import (
+    load_current_portfolio,
+    load_prices,
+    require_nvidia_runtime,
+    optimize_and_frontier,
+    backtest_optimized,
+    run_monthly_rebalancing,
+)
+from nvidia_bridge import DatabricksOptimizationBridge, NvidiaAnalysisWriter
+
+
+def run_gpu_workflow(
+    *,
+    http_path: str,
+    catalog: str,
+    schema: str = "openbb_quant",
+    profile: str | None = None,
+    portfolio_id: str = "",
+    symbols: list[str] | None = None,
+    risk_aversion: float = 1.0,
+    confidence: float = 0.95,
+    num_scenarios: int = 10_000,
+    frontier_points: int = 25,
+    run_rebalancing: bool = False,
+    transaction_cost_factor: float = 0.0,
+    look_back_window: int = 126,
+    look_forward_window: int = 21,
+    push_results: bool = True,
+):
+    require_nvidia_runtime()
+    current_weights = None
+    if portfolio_id:
+        current_weights = load_current_portfolio(
+            http_path=http_path,
+            catalog=catalog,
+            schema=schema,
+            portfolio_id=portfolio_id,
+            profile=profile,
+        )
+        universe = list(current_weights.index)
+    else:
+        universe = [s.strip().upper() for s in (symbols or []) if s.strip()]
+    if not universe:
+        raise ValueError("Set portfolio_id or provide symbols")
+
+    prices = load_prices(
+        http_path=http_path,
+        catalog=catalog,
+        schema=schema,
+        symbols=universe,
+        profile=profile,
+    )
+    result_row, optimal_portfolio, returns_dict, frontier_df, frontier_fig, _ = optimize_and_frontier(
+        prices,
+        risk_aversion=risk_aversion,
+        confidence=confidence,
+        num_scenarios=num_scenarios,
+        frontier_points=frontier_points,
+    )
+    tickers = list(returns_dict["tickers"])
+    optimal_weights = pd.Series(
+        np.asarray(optimal_portfolio.weights, dtype=float).flatten(),
+        index=tickers,
+        name="optimized_weight",
+    )
+    backtest_results = backtest_optimized(
+        returns_dict,
+        optimal_portfolio,
+        current_weights=current_weights,
+    )
+
+    rebalance_results = None
+    rebalance_dates = []
+    rebalance_curve = pd.Series(dtype=float)
+    if run_rebalancing:
+        rebalance_results, rebalance_dates, rebalance_curve = run_monthly_rebalancing(
+            prices,
+            transaction_cost_factor=transaction_cost_factor,
+            look_back_window=look_back_window,
+            look_forward_window=look_forward_window,
+        )
+
+    optimization_run_id = None
+    rebalance_run_id = None
+    if push_results:
+        bridge = DatabricksOptimizationBridge(
+            http_path=http_path,
+            catalog=catalog,
+            schema=schema,
+            profile=profile,
+        )
+        writer = NvidiaAnalysisWriter(bridge)
+        frontier_metrics = frontier_df.drop(columns=["weights"], errors="ignore").copy()
+        optimization_run_id = bridge.push_efficient_frontier(
+            frontier_metrics,
+            objective="mean_cvar",
+            source_engine="NVIDIA-AI-Blueprints/portfolio-optimization",
+            source_notebook="gpu/nvidia_portfolio_optimization/DBO_NVIDIA_PORTFOLIO_OPTIMIZATION.ipynb",
+            portfolio_id=portfolio_id or None,
+            metadata={
+                "risk_aversion": risk_aversion,
+                "confidence": confidence,
+                "num_scenarios": num_scenarios,
+                "frontier_points": frontier_points,
+                "symbols": tickers,
+            },
+        )
+        if "weights" in frontier_df.columns:
+            for point_id, row in frontier_df.reset_index(drop=True).iterrows():
+                weights = row["weights"]
+                if isinstance(weights, dict):
+                    bridge.push_allocation(
+                        optimization_run_id,
+                        weights,
+                        portfolio_label=f"frontier_{point_id:04d}",
+                        point_id=int(point_id),
+                        expected_return=row.get("return"),
+                        cvar=row.get("CVaR"),
+                        metadata={"risk_aversion": row.get("risk_aversion")},
+                    )
+        bridge.push_allocation(
+            optimization_run_id,
+            optimal_weights,
+            portfolio_label="selected_optimal",
+            expected_return=result_row.get("return") if hasattr(result_row, "get") else None,
+            cvar=result_row.get("CVaR") if hasattr(result_row, "get") else None,
+            metadata={"cash": float(np.asarray(optimal_portfolio.cash).squeeze())},
+        )
+        covariance = pd.DataFrame(
+            np.asarray(returns_dict["covariance"], dtype=float),
+            index=tickers,
+            columns=tickers,
+        )
+        bridge.push_matrix(optimization_run_id, covariance, matrix_name="covariance")
+        writer.push_backtest_metrics(optimization_run_id, backtest_results)
+        if run_rebalancing:
+            rebalance_run_id = writer.push_rebalancing(
+                optimization_run_id=optimization_run_id,
+                results_dataframe=rebalance_results,
+                re_optimize_dates=rebalance_dates,
+                cumulative_portfolio_value=pd.Series(rebalance_curve),
+                portfolio_id=portfolio_id or None,
+                transaction_cost_factor=transaction_cost_factor,
+                look_back_window=look_back_window,
+                look_forward_window=look_forward_window,
+            )
+
+    return {
+        "prices": prices,
+        "current_weights": current_weights,
+        "optimal_weights": optimal_weights,
+        "frontier": frontier_df,
+        "frontier_figure": frontier_fig,
+        "backtest_results": backtest_results,
+        "rebalance_results": rebalance_results,
+        "rebalance_dates": rebalance_dates,
+        "rebalance_curve": rebalance_curve,
+        "optimization_run_id": optimization_run_id,
+        "rebalance_run_id": rebalance_run_id,
+    }

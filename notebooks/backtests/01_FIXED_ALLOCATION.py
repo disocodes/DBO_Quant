@@ -1,7 +1,12 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # Backtest — Fixed Allocation
-# MAGIC Edit the widgets, run all cells, and save the resulting `run_id`. This notebook uses the common DBO_Quant execution/metrics engine.
+# MAGIC Configure a constant target allocation, run the shared DBO_Quant backtest engine, and persist the resulting strategy run.
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 1. Load the Research Engine and Configure Inputs
+# MAGIC Locate the repository, import the common strategy runner, and define widgets for the asset universe, benchmark, fixed weights, rebalancing, capital, and trading costs.
 
 # COMMAND ----------
 from pathlib import Path
@@ -13,6 +18,11 @@ sys.path.insert(0,str(repo_root/'src'))
 from quant_platform.research import run_research_strategy
 current_catalog=spark.sql('SELECT current_catalog() c').first()['c']
 for n,d in [('catalog',current_catalog),('schema','openbb_quant'),('symbols','SPY,QQQ,IEF,GLD'),('benchmark','SPY'),('weights_json','{"SPY":0.25,"QQQ":0.25,"IEF":0.25,"GLD":0.25}'),('rebalance','monthly'),('initial_capital','100000'),('fee_bps','5'),('slippage_bps','2')]: dbutils.widgets.text(n,d)
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 2. Run and Persist the Backtest
+# MAGIC Parse the configured fixed weights, execute the common backtest engine, display recent daily results and metrics, and print the persisted `run_id` for downstream analysis.
 
 # COMMAND ----------
 symbols=[x.strip().upper() for x in dbutils.widgets.get('symbols').split(',') if x.strip()]

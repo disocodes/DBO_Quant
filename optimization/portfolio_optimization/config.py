@@ -19,22 +19,27 @@ def _load_env_file(path: Path) -> None:
 def find_repo_root(start: Path | None = None) -> Path:
     current = (start or Path.cwd()).resolve()
     for candidate in [current, *current.parents]:
-        if (candidate / "gpu" / "nvidia_portfolio_optimization").exists() and (candidate / "src" / "quant_platform").exists():
+        if (candidate / "optimization" / "portfolio_optimization").exists() and (candidate / "src" / "quant_platform").exists():
             return candidate
     raise RuntimeError("Could not locate DBO_Quant repository root")
 
 
 def load_portfolio_config(repo_root: Path | None = None) -> dict:
     root = repo_root or find_repo_root()
-    path = root / "gpu" / "nvidia_portfolio_optimization" / "portfolio_config.toml"
+    path = root / "optimization" / "portfolio_optimization" / "portfolio_config.toml"
     data = tomllib.loads(path.read_text())
     p = data.get("portfolio", {})
+    e = data.get("execution", {})
     o = data.get("optimizer", {})
     r = data.get("rebalancing", {})
     out = data.get("output", {})
+    solver = str(e.get("solver", "cpu")).strip().lower()
+    if solver not in {"cpu", "gpu"}:
+        raise ValueError("execution.solver must be 'cpu' or 'gpu'")
     return {
         "portfolio_id": str(p.get("portfolio_id", "")).strip(),
         "symbols": [str(x).strip().upper() for x in p.get("symbols", []) if str(x).strip()],
+        "solver": solver,
         "risk_aversion": float(o.get("risk_aversion", 1.0)),
         "confidence": float(o.get("confidence", 0.95)),
         "num_scenarios": int(o.get("num_scenarios", 10000)),
@@ -67,7 +72,7 @@ def load_external_connection(repo_root: Path | None = None, interactive: bool = 
         if not http_path:
             http_path = input("SQL Warehouse HTTP path (/sql/1.0/warehouses/...): ").strip()
     if not http_path:
-        raise ValueError("A SQL Warehouse HTTP path is required for the external GPU route")
+        raise ValueError("A SQL Warehouse HTTP path is required for the external optimization route")
 
     return {
         "http_path": http_path,
@@ -79,7 +84,7 @@ def load_external_connection(repo_root: Path | None = None, interactive: bool = 
     }
 
 
-def load_gpu_config(repo_root: Path | None = None, interactive: bool = True) -> dict:
+def load_external_config(repo_root: Path | None = None, interactive: bool = True) -> dict:
     cfg = load_portfolio_config(repo_root)
     cfg.update(load_external_connection(repo_root, interactive=interactive))
     return cfg

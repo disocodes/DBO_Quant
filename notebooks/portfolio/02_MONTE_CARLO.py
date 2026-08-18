@@ -1,7 +1,7 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # Portfolio Analysis — Monte Carlo
-# MAGIC Forward-risk analysis for an existing allocation. Monte Carlo does **not** optimize weights; it tests the range of outcomes for weights produced by a saved portfolio, a strategy backtest, an NVIDIA optimization, or an ad-hoc allocation.
+# MAGIC Forward-risk analysis for an existing allocation. Monte Carlo does **not** optimize weights; it tests the range of outcomes for weights produced by a saved portfolio, a strategy backtest, a portfolio-optimization run, or an ad-hoc allocation.
 # MAGIC
 # MAGIC **Prerequisite:** run `00_SETUP.py` and `01_INGEST_DATA.py`.
 
@@ -72,7 +72,7 @@ elif SOURCE_TYPE=='optimization_run':
          .select('symbol','weight').toPandas())
     if pdf.empty: raise ValueError(f'No selected_optimal allocation found for optimization_run_id={SOURCE_ID}')
     WEIGHTS=normalized(pdf.set_index('symbol')['weight'])
-    source_description=f'NVIDIA/optimizer selected allocation {SOURCE_ID}'
+    source_description=f'portfolio-optimization selected allocation {SOURCE_ID}'
 
 else:
     symbols=[x.strip().upper() for x in dbutils.widgets.get('symbols').split(',') if x.strip()]
@@ -134,7 +134,12 @@ paths=(mc.sample_paths.reset_index().melt(id_vars=['day'],var_name='path_id',val
 paths.insert(0,'mc_run_id',mc.run_id)
 spark.createDataFrame(paths[['mc_run_id','day','path_id','value']]).write.mode('append').saveAsTable(f'{CATALOG}.{SCHEMA}.monte_carlo_sample_paths')
 
+try:
+    dbutils.jobs.taskValues.set(key='mc_run_id', value=str(mc.run_id))
+except Exception:
+    pass
+
 print('MONTE CARLO SAVED:',mc.run_id)
 print('Source:',source_description)
 print('OPENBB → Monte Carlo Fan Chart / Monte Carlo Sample Paths using this mc_run_id')
-print('NEXT → compare another allocation, run NVIDIA optimization, or open notebooks/platform/02_DEPLOY_APP.py')
+print('NEXT → compare another allocation, run portfolio optimization, or open notebooks/platform/02_DEPLOY_APP.py')

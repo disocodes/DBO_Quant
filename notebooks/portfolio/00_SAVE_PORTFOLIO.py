@@ -1,7 +1,7 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # Portfolio — Save or Update Holdings
-# MAGIC Create or update a real portfolio using a persistent `portfolio_id`. The saved portfolio can be used by Monte Carlo, NVIDIA optimization/rebalancing, and OpenBB.
+# MAGIC Create or update a real portfolio using a persistent `portfolio_id`. The saved portfolio can be used by Monte Carlo, portfolio optimization/rebalancing, and OpenBB.
 
 # COMMAND ----------
 from pathlib import Path
@@ -42,4 +42,4 @@ spark.createDataFrame(pd.DataFrame(rows)).write.mode('append').saveAsTable(f'{CA
 print('PORTFOLIO SAVED')
 print('portfolio_id =',PORTFOLIO_ID)
 display(spark.table(f'{CATALOG}.{SCHEMA}.portfolio_holdings').where(f"portfolio_id = '{PORTFOLIO_ID}'").orderBy('as_of_date','symbol'))
-print('NEXT → 02_MONTE_CARLO.py for baseline risk, or optional NVIDIA optimization.')
+print('NEXT → 02_MONTE_CARLO.py for baseline risk, or 04_PORTFOLIO_OPTIMIZATION_DATABRICKS.py for optional optimization.')

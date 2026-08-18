@@ -35,7 +35,7 @@ else:
 # COMMAND ----------
 # MAGIC %md
 # MAGIC ## Feature Serving
-# MAGIC Use `serving/feature_serving_setup.py` only when low-latency online feature lookup is required. Ordinary backtests, Monte Carlo, NVIDIA optimization-result review, and the OpenBB App do not require Feature Serving.
+# MAGIC Use `serving/feature_serving_setup.py` only when low-latency online feature lookup is required. Ordinary backtests, Monte Carlo, portfolio-optimization result review, automated strategy Jobs, and the OpenBB App do not require Feature Serving.
 
 # COMMAND ----------
 print('SERVING STEP COMPLETE')

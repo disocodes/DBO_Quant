@@ -9,10 +9,9 @@ from .workflow import (
     load_current_portfolio,
     load_prices,
     optimize_and_frontier,
-    require_nvidia_runtime,
+    require_optimization_runtime,
     run_monthly_rebalancing,
 )
-from nvidia_bridge import DatabricksOptimizationBridge, NvidiaAnalysisWriter
 
 MARKER_TABLE = "dbo_quant_project_config"
 
@@ -55,10 +54,11 @@ def _resolve_external_location(
     return unique[0]
 
 
-def execute_gpu_analysis(
+def execute_optimization_analysis(
     *,
     prices: pd.DataFrame,
     current_weights: pd.Series | None = None,
+    solver: str = "cpu",
     risk_aversion: float = 1.0,
     confidence: float = 0.95,
     num_scenarios: int = 10_000,
@@ -68,9 +68,11 @@ def execute_gpu_analysis(
     look_back_window: int = 126,
     look_forward_window: int = 21,
 ) -> dict:
-    require_nvidia_runtime()
+    solver = solver.lower().strip()
+    require_optimization_runtime(solver)
     result_row, optimal_portfolio, returns_dict, frontier_df, frontier_fig, _ = optimize_and_frontier(
         prices,
+        solver=solver,
         risk_aversion=risk_aversion,
         confidence=confidence,
         num_scenarios=num_scenarios,
@@ -90,12 +92,14 @@ def execute_gpu_analysis(
     if run_rebalancing:
         rebalance_results, rebalance_dates, rebalance_curve = run_monthly_rebalancing(
             prices,
+            solver=solver,
             transaction_cost_factor=transaction_cost_factor,
             look_back_window=look_back_window,
             look_forward_window=look_forward_window,
         )
 
     return {
+        "solver": solver,
         "prices": prices,
         "current_weights": current_weights,
         "optimal_weights": optimal_weights,
@@ -113,7 +117,7 @@ def execute_gpu_analysis(
     }
 
 
-def run_gpu_workflow(
+def run_external_workflow(
     *,
     http_path: str,
     catalog: str | None = None,
@@ -123,6 +127,7 @@ def run_gpu_workflow(
     auth_mode: str = "auto",
     portfolio_id: str = "",
     symbols: list[str] | None = None,
+    solver: str = "cpu",
     risk_aversion: float = 1.0,
     confidence: float = 0.95,
     num_scenarios: int = 10_000,
@@ -133,7 +138,8 @@ def run_gpu_workflow(
     look_forward_window: int = 21,
     push_results: bool = True,
 ):
-    """External/remote GPU route using a Databricks SQL Warehouse."""
+    """External CPU/GPU route using a Databricks SQL Warehouse."""
+    solver = solver.lower().strip()
     catalog, schema = _resolve_external_location(
         http_path=http_path,
         profile=profile,
@@ -143,6 +149,7 @@ def run_gpu_workflow(
         schema=schema,
     )
     print(f"DBO_Quant namespace: {catalog}.{schema}")
+    print(f"Optimization solver: {solver.upper()}")
 
     current_weights = None
     if portfolio_id:
@@ -160,9 +167,10 @@ def run_gpu_workflow(
         http_path=http_path, catalog=catalog, schema=schema, symbols=universe,
         profile=profile, host=host, auth_mode=auth_mode,
     )
-    output = execute_gpu_analysis(
+    output = execute_optimization_analysis(
         prices=prices,
         current_weights=current_weights,
+        solver=solver,
         risk_aversion=risk_aversion,
         confidence=confidence,
         num_scenarios=num_scenarios,
@@ -176,6 +184,10 @@ def run_gpu_workflow(
     if not push_results:
         return output
 
+    # The SQL write-back bridge is external-route infrastructure. Import it only
+    # here so Databricks-native CPU/GPU runs do not require SQL connector packages.
+    from nvidia_bridge import DatabricksOptimizationBridge, NvidiaAnalysisWriter
+
     result_row = output["result_row"]
     optimal_portfolio = output["optimal_portfolio"]
     returns_dict = output["returns_dict"]
@@ -188,13 +200,19 @@ def run_gpu_workflow(
     )
     writer = NvidiaAnalysisWriter(bridge)
     frontier_metrics = frontier_df.drop(columns=["weights"], errors="ignore").copy()
+    source_engine = (
+        "NVIDIA-AI-Blueprints/portfolio-optimization:CVXPY-CLARABEL"
+        if solver == "cpu"
+        else "NVIDIA-AI-Blueprints/portfolio-optimization:CVXPY-cuOpt"
+    )
     optimization_run_id = bridge.push_efficient_frontier(
         frontier_metrics,
         objective="mean_cvar",
-        source_engine="NVIDIA-AI-Blueprints/portfolio-optimization",
-        source_notebook="gpu/nvidia_portfolio_optimization/DBO_NVIDIA_PORTFOLIO_OPTIMIZATION.ipynb",
+        source_engine=source_engine,
+        source_notebook="optimization/portfolio_optimization/PORTFOLIO_OPTIMIZATION.ipynb",
         portfolio_id=portfolio_id or None,
         metadata={
+            "solver": solver,
             "risk_aversion": risk_aversion,
             "confidence": confidence,
             "num_scenarios": num_scenarios,
@@ -209,7 +227,7 @@ def run_gpu_workflow(
                 bridge.push_allocation(
                     optimization_run_id, weights, portfolio_label=f"frontier_{point_id:04d}",
                     point_id=int(point_id), expected_return=row.get("return"), cvar=row.get("CVaR"),
-                    metadata={"risk_aversion": row.get("risk_aversion")},
+                    metadata={"risk_aversion": row.get("risk_aversion"), "solver": solver},
                 )
     bridge.push_allocation(
         optimization_run_id,
@@ -217,7 +235,7 @@ def run_gpu_workflow(
         portfolio_label="selected_optimal",
         expected_return=result_row.get("return") if hasattr(result_row, "get") else None,
         cvar=result_row.get("CVaR") if hasattr(result_row, "get") else None,
-        metadata={"cash": float(np.asarray(optimal_portfolio.cash).squeeze())},
+        metadata={"cash": float(np.asarray(optimal_portfolio.cash).squeeze()), "solver": solver},
     )
     covariance = pd.DataFrame(np.asarray(returns_dict["covariance"], dtype=float), index=tickers, columns=tickers)
     bridge.push_matrix(optimization_run_id, covariance, matrix_name="covariance")

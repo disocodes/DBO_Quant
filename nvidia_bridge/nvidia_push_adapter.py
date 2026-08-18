@@ -11,7 +11,7 @@ from typing import Iterable, Optional, Sequence
 import numpy as np
 import pandas as pd
 
-from gpu.nvidia_portfolio_optimization.workflow import connect_databricks
+from optimization.portfolio_optimization.workflow import connect_databricks
 
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 

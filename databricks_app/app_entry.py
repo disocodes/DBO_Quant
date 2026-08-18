@@ -1,7 +1,7 @@
 """DBO_Quant application entrypoint.
 
-Imports the core OpenBB/Databricks API and adds saved-portfolio and NVIDIA
-portfolio-analysis routes. openbb-platform-api discovers these routes automatically.
+Imports the core OpenBB/Databricks API and adds saved-portfolio and portfolio-
+optimization routes. openbb-platform-api discovers these routes automatically.
 """
 from typing import Optional
 
@@ -126,7 +126,7 @@ def optimizer_rebalance_events(rebalance_run_id: str) -> list[dict]:
 
 @app.get(
     "/api/quant/optimization/rebalance-curve",
-    openapi_extra={"widget_config": {"type": "chart", "name": "Optimizer Rebalancing Value", "category": "Portfolio Lab"}},
+    openapi_extra={"widget_config": {"type": "chart", "name": "Portfolio Rebalancing Value", "category": "Portfolio Lab"}},
 )
 def optimizer_rebalance_curve(rebalance_run_id: str) -> dict:
     rows = query_records(
@@ -144,7 +144,7 @@ def optimizer_rebalance_curve(rebalance_run_id: str) -> dict:
             "y": [r["portfolio_value"] for r in rows],
         }],
         "layout": {
-            "title": "NVIDIA cuOpt Rebalancing",
+            "title": "Portfolio Rebalancing",
             "xaxis": {"title": "Date"},
             "yaxis": {"title": "Portfolio Value"},
         },

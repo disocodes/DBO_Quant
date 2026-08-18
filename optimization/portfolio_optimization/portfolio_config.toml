@@ -1,9 +1,13 @@
-# Non-secret portfolio/optimizer settings shared by both GPU routes.
+# Non-secret portfolio-optimization settings shared by Databricks and external runs.
 # Use either portfolio_id or symbols. A saved portfolio_id is preferred.
 
 [portfolio]
 portfolio_id = ""
 symbols = ["SPY", "QQQ", "IEF", "GLD"]
+
+[execution]
+# cpu = CVXPY + CLARABEL; gpu = CVXPY + NVIDIA cuOpt
+solver = "cpu"
 
 [optimizer]
 risk_aversion = 1.0

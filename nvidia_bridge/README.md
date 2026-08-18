@@ -1,17 +1,17 @@
-# NVIDIA external write-back bridge
+# External optimization write-back bridge
 
-This implementation folder is used only by the remote/on-prem NVIDIA GPU route.
-
-The Databricks GPU route does not use this bridge; it reads and writes Unity Catalog directly with Spark.
+This is an internal implementation folder used by the remote/on-prem portfolio-optimization route. Operators normally start from the neutral portfolio-optimization notebook rather than invoking this bridge directly.
 
 ## External workflow
 
 ```text
-DBO_NVIDIA_PORTFOLIO_OPTIMIZATION.ipynb
+optimization/portfolio_optimization/PORTFOLIO_OPTIMIZATION.ipynb
+        ↓
+CPU or GPU optimization backend
         ↓
 Databricks SQL Warehouse
         ↓
-nvidia_bridge
+write-back bridge
         ↓
 canonical DBO_Quant Unity Catalog tables
 ```
@@ -25,7 +25,7 @@ The bridge persists:
 - optimizer backtest metrics;
 - rebalancing runs, events, and portfolio-value series.
 
-The external workflow discovers the canonical DBO_Quant namespace after authenticating to Databricks.
+The external workflow discovers the canonical DBO_Quant namespace after authenticating to Databricks. Both CPU and GPU routes write the same schema.
 
 ## Authentication
 
@@ -38,10 +38,16 @@ Do not hard-code Databricks access tokens in source files.
 
 ## Normal entry point
 
-Do not invoke the bridge directly for ordinary use. Start with:
+Run:
 
 ```text
-gpu/nvidia_portfolio_optimization/DBO_NVIDIA_PORTFOLIO_OPTIMIZATION.ipynb
+optimization/portfolio_optimization/PORTFOLIO_OPTIMIZATION.ipynb
 ```
 
-Then review the returned `optimization_run_id` with `notebooks/portfolio/03_NVIDIA_RESULTS.py` or OpenBB Workspace.
+Then review the returned `optimization_run_id` with:
+
+```text
+notebooks/portfolio/03_OPTIMIZATION_RESULTS.py
+```
+
+or OpenBB Workspace.

@@ -6,8 +6,6 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-from databricks import sql
-from databricks.sdk.core import Config
 
 
 def _qualified(catalog: str, schema: str, table: str) -> str:
@@ -23,12 +21,10 @@ def connect_databricks(
     host: Optional[str] = None,
     auth_mode: str = "auto",
 ):
-    """Connect from an external machine.
+    """Connect to Databricks from an external machine through a SQL Warehouse."""
+    from databricks import sql
+    from databricks.sdk.core import Config
 
-    auth_mode='auto': use a configured Databricks profile/environment when present;
-    otherwise use OAuth U2M when `host` is supplied.
-    auth_mode='oauth': always use Databricks OAuth U2M (interactive browser sign-in).
-    """
     mode = (auth_mode or "auto").strip().lower()
     if mode not in {"auto", "profile", "oauth"}:
         raise ValueError("auth_mode must be auto, profile, or oauth")
@@ -115,21 +111,37 @@ def load_prices(
     return wide
 
 
-def require_nvidia_runtime():
+def require_optimization_runtime(solver: str = "cpu") -> dict:
+    """Validate the Portfolio Optimization package and selected solver backend.
+
+    cpu -> CVXPY with CLARABEL
+    gpu -> CVXPY with NVIDIA cuOpt
+    """
     import cvxpy as cp
 
+    solver = str(solver).strip().lower()
+    if solver not in {"cpu", "gpu"}:
+        raise ValueError("solver must be 'cpu' or 'gpu'")
     if importlib.util.find_spec("portfolio_optimization") is None:
         raise RuntimeError(
-            "portfolio_optimization is not importable. Install NVIDIA's portfolio-optimization environment/package first."
+            "portfolio_optimization is not importable. Install NVIDIA's portfolio-optimization package/environment first."
         )
-    if not hasattr(cp, "CUOPT") or str(cp.CUOPT) not in {str(s) for s in cp.installed_solvers()}:
-        raise RuntimeError("NVIDIA cuOpt GPU solver is required. Do not substitute a CPU solver.")
+
+    installed = {str(s) for s in cp.installed_solvers()}
+    if solver == "cpu":
+        if str(cp.CLARABEL) not in installed:
+            raise RuntimeError("CPU mode requires the CVXPY CLARABEL solver.")
+        return {"solver": cp.CLARABEL, "verbose": False}
+
+    if not hasattr(cp, "CUOPT") or str(cp.CUOPT) not in installed:
+        raise RuntimeError("GPU mode requires NVIDIA cuOpt to be installed and visible to CVXPY.")
     return {"solver": cp.CUOPT, "verbose": False, "solver_method": "PDLP"}
 
 
 def optimize_and_frontier(
     prices: pd.DataFrame,
     *,
+    solver: str = "cpu",
     risk_aversion: float = 1.0,
     confidence: float = 0.95,
     num_scenarios: int = 10_000,
@@ -139,18 +151,24 @@ def optimize_and_frontier(
     from portfolio_optimization.cvar_parameters import CvarParameters
     from portfolio_optimization.settings import KDESettings, ReturnsComputeSettings, ScenarioGenerationSettings
 
-    solver_settings = require_nvidia_runtime()
+    solver = solver.lower().strip()
+    solver_settings = require_optimization_runtime(solver)
+    compute_device = "GPU" if solver == "gpu" else "CPU"
+
     returns_dict = utils.calculate_returns(
         prices,
         regime_dict=None,
-        returns_compute_settings=ReturnsComputeSettings(return_type="LOG"),
+        returns_compute_settings=ReturnsComputeSettings(
+            return_type="LOG",
+            returns_compute_device=compute_device,
+        ),
     )
     returns_dict = cvar_utils.generate_cvar_data(
         returns_dict,
         ScenarioGenerationSettings(
             num_scen=int(num_scenarios),
             fit_type="kde",
-            kde_settings=KDESettings(device="GPU"),
+            kde_settings=KDESettings(device=compute_device),
         ),
     )
     params = CvarParameters(
@@ -189,7 +207,7 @@ def backtest_optimized(
 
     tickers = list(returns_dict["tickers"])
     optimized = Portfolio(
-        name="cuOpt Optimal",
+        name="Optimized Portfolio",
         tickers=tickers,
         weights=np.asarray(optimal_portfolio.weights, dtype=float).flatten(),
         cash=float(np.asarray(optimal_portfolio.cash).squeeze()),
@@ -224,16 +242,19 @@ def backtest_optimized(
 def run_monthly_rebalancing(
     prices: pd.DataFrame,
     *,
+    solver: str = "cpu",
     transaction_cost_factor: float = 0.0,
     look_back_window: int = 126,
     look_forward_window: int = 21,
-    csv_path: str = "/tmp/dbo_quant_nvidia_prices.csv",
+    csv_path: str = "/tmp/dbo_quant_optimization_prices.csv",
 ):
     from portfolio_optimization import rebalance
     from portfolio_optimization.cvar_parameters import CvarParameters
     from portfolio_optimization.settings import KDESettings, ReturnsComputeSettings, ScenarioGenerationSettings
 
-    solver_settings = require_nvidia_runtime()
+    solver = solver.lower().strip()
+    solver_settings = require_optimization_runtime(solver)
+    compute_device = "GPU" if solver == "gpu" else "CPU"
     path = Path(csv_path)
     prices.to_csv(path)
     if len(prices) <= look_back_window + look_forward_window:
@@ -243,9 +264,13 @@ def run_monthly_rebalancing(
     )
     runner = rebalance.rebalance_portfolio(
         dataset_directory=str(path),
-        returns_compute_settings=ReturnsComputeSettings(return_type="LOG"),
+        returns_compute_settings=ReturnsComputeSettings(
+            return_type="LOG",
+            returns_compute_device=compute_device,
+        ),
         scenario_generation_settings=ScenarioGenerationSettings(
-            fit_type="kde", kde_settings=KDESettings(device="GPU")
+            fit_type="kde",
+            kde_settings=KDESettings(device=compute_device),
         ),
         trading_start=str(prices.index[look_back_window].date()),
         trading_end=str(prices.index[-look_forward_window].date()),
@@ -259,5 +284,5 @@ def run_monthly_rebalancing(
     return runner.re_optimize(
         transaction_cost_factor=float(transaction_cost_factor),
         plot_results=False,
-        plot_title="DBO_Quant NVIDIA Monthly Rebalancing",
+        plot_title="DBO_Quant Portfolio Rebalancing",
     )

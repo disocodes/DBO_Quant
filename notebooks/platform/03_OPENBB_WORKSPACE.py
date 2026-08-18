@@ -1,7 +1,7 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # Platform — Connect OpenBB Workspace
-# MAGIC Prerequisite: a running DBO_Quant Databricks App from `02_DEPLOY_APP.py`.
+# MAGIC Prerequisite: a running DBO_Quant Databricks App from `02_DEPLOY_APP.py` or `04_DEPLOY_APP_AUTOMATED.py`.
 
 # COMMAND ----------
 from pathlib import Path
@@ -51,11 +51,11 @@ print('Authorization: Bearer <current Databricks OAuth access token>')
 # MAGIC - Monte Carlo sample paths;
 # MAGIC - Mean-CVaR efficient frontier;
 # MAGIC - optimized allocation bars;
-# MAGIC - NVIDIA rebalancing portfolio value.
+# MAGIC - portfolio rebalancing value curve.
 # MAGIC
-# MAGIC Table widgets expose saved portfolios, holdings, run metadata, metrics, optimizer results, and rebalancing events.
+# MAGIC Table widgets expose saved portfolios, holdings, run metadata, metrics, optimization results, and rebalancing events.
 
 # COMMAND ----------
 print('DBO_QUANT PLATFORM CONNECTION COMPLETE')
-print('Normal research continues in notebooks/backtests/ and notebooks/portfolio/.')
+print('Normal research continues in notebooks/backtests/, notebooks/portfolio/, and notebooks/workflows/.')
 print('Final teardown, when required: notebooks/99_CLEANUP.py')

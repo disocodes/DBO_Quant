@@ -6,8 +6,6 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-from databricks import sql
-from databricks.sdk.core import Config
 
 
 def _qualified(catalog: str, schema: str, table: str) -> str:
@@ -23,6 +21,10 @@ def connect_databricks(
     host: Optional[str] = None,
     auth_mode: str = "auto",
 ):
+    """Connect to Databricks from an external machine through a SQL Warehouse."""
+    from databricks import sql
+    from databricks.sdk.core import Config
+
     mode = (auth_mode or "auto").strip().lower()
     if mode not in {"auto", "profile", "oauth"}:
         raise ValueError("auth_mode must be auto, profile, or oauth")
@@ -99,7 +101,7 @@ def load_prices(
             )
             rows = cur.fetchall()
     if not rows:
-        raise ValueError("No matching prices found in DBO_Quant. Run notebooks/01_INGEST_DATA.py first.")
+        raise ValueError("No matching prices found in DBO_Quant. Run Databricks 01_INGEST_DATA first.")
     pdf = pd.DataFrame(rows, columns=["date", "symbol", "price"])
     wide = pdf.pivot_table(index="date", columns="symbol", values="price", aggfunc="last").sort_index()
     wide.index = pd.to_datetime(wide.index)
@@ -110,7 +112,7 @@ def load_prices(
 
 
 def require_optimization_runtime(solver: str = "cpu") -> dict:
-    """Validate NVIDIA Portfolio Optimization plus the selected solver backend.
+    """Validate the Portfolio Optimization package and selected solver backend.
 
     cpu -> CVXPY with CLARABEL
     gpu -> CVXPY with NVIDIA cuOpt
@@ -151,19 +153,22 @@ def optimize_and_frontier(
 
     solver = solver.lower().strip()
     solver_settings = require_optimization_runtime(solver)
-    scenario_device = "GPU" if solver == "gpu" else "CPU"
+    compute_device = "GPU" if solver == "gpu" else "CPU"
 
     returns_dict = utils.calculate_returns(
         prices,
         regime_dict=None,
-        returns_compute_settings=ReturnsComputeSettings(return_type="LOG", returns_compute_device="CPU"),
+        returns_compute_settings=ReturnsComputeSettings(
+            return_type="LOG",
+            returns_compute_device=compute_device,
+        ),
     )
     returns_dict = cvar_utils.generate_cvar_data(
         returns_dict,
         ScenarioGenerationSettings(
             num_scen=int(num_scenarios),
             fit_type="kde",
-            kde_settings=KDESettings(device=scenario_device),
+            kde_settings=KDESettings(device=compute_device),
         ),
     )
     params = CvarParameters(
@@ -249,7 +254,7 @@ def run_monthly_rebalancing(
 
     solver = solver.lower().strip()
     solver_settings = require_optimization_runtime(solver)
-    scenario_device = "GPU" if solver == "gpu" else "CPU"
+    compute_device = "GPU" if solver == "gpu" else "CPU"
     path = Path(csv_path)
     prices.to_csv(path)
     if len(prices) <= look_back_window + look_forward_window:
@@ -259,9 +264,13 @@ def run_monthly_rebalancing(
     )
     runner = rebalance.rebalance_portfolio(
         dataset_directory=str(path),
-        returns_compute_settings=ReturnsComputeSettings(return_type="LOG", returns_compute_device="CPU"),
+        returns_compute_settings=ReturnsComputeSettings(
+            return_type="LOG",
+            returns_compute_device=compute_device,
+        ),
         scenario_generation_settings=ScenarioGenerationSettings(
-            fit_type="kde", kde_settings=KDESettings(device=scenario_device)
+            fit_type="kde",
+            kde_settings=KDESettings(device=compute_device),
         ),
         trading_start=str(prices.index[look_back_window].date()),
         trading_end=str(prices.index[-look_forward_window].date()),

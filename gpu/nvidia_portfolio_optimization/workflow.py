@@ -17,11 +17,35 @@ def _qualified(catalog: str, schema: str, table: str) -> str:
     return f"`{catalog}`.`{schema}`.`{table}`"
 
 
-def connect_databricks(http_path: str, profile: Optional[str] = None):
+def connect_databricks(
+    http_path: str,
+    profile: Optional[str] = None,
+    host: Optional[str] = None,
+    auth_mode: str = "auto",
+):
+    """Connect from an external machine.
+
+    auth_mode='auto': use a configured Databricks profile/environment when present;
+    otherwise use OAuth U2M when `host` is supplied.
+    auth_mode='oauth': always use Databricks OAuth U2M (interactive browser sign-in).
+    """
+    mode = (auth_mode or "auto").strip().lower()
+    if mode not in {"auto", "profile", "oauth"}:
+        raise ValueError("auth_mode must be auto, profile, or oauth")
+
+    if mode == "oauth" or (mode == "auto" and host and not profile):
+        hostname = host.replace("https://", "").replace("http://", "").rstrip("/")
+        return sql.connect(
+            server_hostname=hostname,
+            http_path=http_path,
+            auth_type="databricks-oauth",
+            _use_arrow_native_complex_types=False,
+        )
+
     cfg = Config(profile=profile) if profile else Config()
-    host = cfg.host.replace("https://", "").replace("http://", "").rstrip("/")
+    hostname = cfg.host.replace("https://", "").replace("http://", "").rstrip("/")
     return sql.connect(
-        server_hostname=host,
+        server_hostname=hostname,
         http_path=http_path,
         credentials_provider=lambda: cfg.authenticate,
         _use_arrow_native_complex_types=False,
@@ -29,10 +53,17 @@ def connect_databricks(http_path: str, profile: Optional[str] = None):
 
 
 def load_current_portfolio(
-    *, http_path: str, catalog: str, schema: str, portfolio_id: str, profile: Optional[str] = None
+    *,
+    http_path: str,
+    catalog: str,
+    schema: str,
+    portfolio_id: str,
+    profile: Optional[str] = None,
+    host: Optional[str] = None,
+    auth_mode: str = "auto",
 ) -> pd.Series:
     table = _qualified(catalog, schema, "portfolio_holdings")
-    with connect_databricks(http_path, profile) as conn:
+    with connect_databricks(http_path, profile, host, auth_mode) as conn:
         with conn.cursor() as cur:
             cur.execute(f"SELECT MAX(as_of_date) FROM {table} WHERE portfolio_id = ?", [portfolio_id])
             row = cur.fetchone()
@@ -51,14 +82,21 @@ def load_current_portfolio(
 
 
 def load_prices(
-    *, http_path: str, catalog: str, schema: str, symbols: list[str], profile: Optional[str] = None
+    *,
+    http_path: str,
+    catalog: str,
+    schema: str,
+    symbols: list[str],
+    profile: Optional[str] = None,
+    host: Optional[str] = None,
+    auth_mode: str = "auto",
 ) -> pd.DataFrame:
     table = _qualified(catalog, schema, "prices_daily")
     symbols = [s.strip().upper() for s in symbols if s.strip()]
     if not symbols:
         raise ValueError("At least one symbol is required")
     placeholders = ",".join(["?"] * len(symbols))
-    with connect_databricks(http_path, profile) as conn:
+    with connect_databricks(http_path, profile, host, auth_mode) as conn:
         with conn.cursor() as cur:
             cur.execute(
                 f"SELECT date, symbol, COALESCE(adjusted_close, close) AS price FROM {table} "
@@ -82,8 +120,7 @@ def require_nvidia_runtime():
 
     if importlib.util.find_spec("portfolio_optimization") is None:
         raise RuntimeError(
-            "portfolio_optimization is not importable. Start Jupyter from the cloned NVIDIA "
-            "portfolio-optimization environment and select its Portfolio Optimization kernel."
+            "portfolio_optimization is not importable. Install NVIDIA's portfolio-optimization environment/package first."
         )
     if not hasattr(cp, "CUOPT") or str(cp.CUOPT) not in {str(s) for s in cp.installed_solvers()}:
         raise RuntimeError("NVIDIA cuOpt GPU solver is required. Do not substitute a CPU solver.")

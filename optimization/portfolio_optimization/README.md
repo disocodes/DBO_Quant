@@ -37,10 +37,10 @@ solver = "cpu"
 
 Supported solver modes:
 
-- `cpu` — CVXPY + CLARABEL. CPU return/scenario computation; no GPU required.
-- `gpu` — CVXPY + NVIDIA cuOpt. Requires a compatible NVIDIA GPU/cuOpt environment.
+- `cpu` — CVXPY + CLARABEL with CPU returns/scenario generation; no GPU required.
+- `gpu` — CVXPY + NVIDIA cuOpt with GPU returns/scenario generation; requires compatible NVIDIA GPU/cuOpt/cuML packages.
 
-The underlying NVIDIA Portfolio Optimization project supports both CVXPY and cuOpt APIs; DBO_Quant keeps that backend detail inside this implementation layer rather than in operator notebook names.
+The upstream Portfolio Optimization project supports both CVXPY and cuOpt APIs. DBO_Quant keeps those backend details inside this implementation layer rather than encoding a vendor or device in operator notebook names.
 
 ## Databricks route
 
@@ -50,9 +50,24 @@ Run:
 notebooks/portfolio/04_PORTFOLIO_OPTIMIZATION_DATABRICKS.py
 ```
 
-The notebook uses Spark/Unity Catalog directly, discovers the canonical DBO_Quant namespace, reads prices/holdings, runs the selected solver, and persists results.
+The notebook uses Spark/Unity Catalog directly, discovers the canonical DBO_Quant namespace, and persists results to the same tables for CPU and GPU runs.
 
-CPU mode can run on ordinary Databricks CPU compute. GPU mode requires compatible GPU compute and the required NVIDIA/cuOpt packages.
+A fresh CPU/serverless session installs the verified upstream package revision used by this repository before running:
+
+```text
+efa60ce29b7351cfda8fd4c9afb94b9d7fce482c
+```
+
+Manual input defaults to `portfolio_config.toml`. The notebook can also be called with:
+
+```text
+source_type = strategy_run
+source_id   = <run_id>
+```
+
+In that mode, the latest effective strategy allocation becomes the reference portfolio and its active symbols become the optimization universe. This is the mode used by the automated strategy workflow.
+
+GPU mode requires compatible GPU compute plus the matching cuOpt/cuML CUDA packages; it does not silently fall back to CPU.
 
 ## Remote/on-prem route
 
@@ -64,7 +79,18 @@ optimization/portfolio_optimization/PORTFOLIO_OPTIMIZATION.ipynb
 
 The external route connects to Databricks through a SQL Warehouse. Authentication supports an existing Databricks profile or OAuth U2M browser sign-in.
 
-CPU mode can run on a normal workstation/server with the NVIDIA Portfolio Optimization Python environment and CVXPY/CLARABEL available. GPU mode additionally requires a compatible NVIDIA/cuOpt environment.
+For a reproducible CPU environment:
+
+```bash
+git clone https://github.com/NVIDIA-AI-Blueprints/portfolio-optimization.git
+cd portfolio-optimization
+git checkout efa60ce29b7351cfda8fd4c9afb94b9d7fce482c
+uv sync --group notebooks
+```
+
+Install `databricks-sdk` and `databricks-sql-connector` in the same environment for DBO_Quant read/write access.
+
+For GPU execution, install the CUDA extra that matches the host, for example `--extra cuda12`, together with the notebook group. Confirm the actual CUDA/cuOpt compatibility of the target host before running.
 
 ## Outputs
 

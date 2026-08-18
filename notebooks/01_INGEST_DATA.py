@@ -1,23 +1,30 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # 01 — Ingest Market Data with OpenBB ODP
-# MAGIC **Prerequisite:** 00_SETUP. This loads historical prices through permanent OpenBB ODP and writes them to Delta. When complete, continue to **02_BACKTEST**.
+# MAGIC **Prerequisite:** 00_SETUP. The canonical DBO_Quant catalog/schema is discovered automatically from setup. This notebook loads historical prices through permanent OpenBB ODP and writes them to Delta.
 
 # COMMAND ----------
+from pathlib import Path
 from datetime import date, datetime, timezone
 from openbb import obb
 from delta.tables import DeltaTable
 import pandas as pd, numpy as np
+import sys
+repo_root=Path.cwd()
+for candidate in [repo_root,*repo_root.parents]:
+    if (candidate/'src'/'quant_platform').exists(): repo_root=candidate; break
+sys.path.insert(0,str(repo_root/'src'))
+from quant_platform.location import discover_with_spark
 
 # COMMAND ----------
-current_catalog=spark.sql("SELECT current_catalog() c").first()["c"]
-dbutils.widgets.text("catalog",current_catalog)
-dbutils.widgets.text("schema","openbb_quant")
+location=discover_with_spark(spark)
+CATALOG,SCHEMA=location.catalog,location.schema
+print('DBO_Quant namespace:',location.namespace)
 dbutils.widgets.text("provider","yfinance")
 dbutils.widgets.text("symbols","SPY,QQQ,IEF,GLD")
 dbutils.widgets.text("start_date","2010-01-01")
 dbutils.widgets.text("end_date",str(date.today()))
-CATALOG=dbutils.widgets.get("catalog").strip(); SCHEMA=dbutils.widgets.get("schema").strip(); PROVIDER=dbutils.widgets.get("provider").strip()
+PROVIDER=dbutils.widgets.get("provider").strip()
 SYMBOLS=[x.strip().upper() for x in dbutils.widgets.get("symbols").split(",") if x.strip()]
 START_DATE=dbutils.widgets.get("start_date"); END_DATE=dbutils.widgets.get("end_date")
 try: spark.table(f"{CATALOG}.{SCHEMA}.prices_daily").limit(1).collect()
@@ -49,4 +56,4 @@ for symbol in SYMBOLS:
 summary=(spark.table(f"{CATALOG}.{SCHEMA}.prices_daily").where(f"provider='{PROVIDER}'").groupBy("symbol").agg({"date":"min"}).withColumnRenamed("min(date)","first_date"))
 display(summary)
 print("\nDATA INGESTION COMPLETE")
-print("NEXT → open notebooks/02_BACKTEST.py")
+print("NEXT → choose a strategy notebook under notebooks/backtests/")

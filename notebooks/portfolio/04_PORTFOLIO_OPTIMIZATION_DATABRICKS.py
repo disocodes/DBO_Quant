@@ -6,6 +6,14 @@
 # MAGIC Solver selection comes from `optimization/portfolio_optimization/portfolio_config.toml`.
 # MAGIC `cpu` is the default and uses CVXPY + CLARABEL. `gpu` uses CVXPY + NVIDIA cuOpt.
 # MAGIC The canonical DBO_Quant Unity Catalog namespace is discovered automatically.
+# MAGIC
+# MAGIC The base Portfolio Optimization package is pinned below so a fresh serverless CPU session is reproducible. GPU mode additionally requires the matching cuOpt/cuML CUDA packages in the selected Databricks environment.
+
+# COMMAND ----------
+# MAGIC %pip install -q "git+https://github.com/NVIDIA-AI-Blueprints/portfolio-optimization.git@efa60ce29b7351cfda8fd4c9afb94b9d7fce482c"
+
+# COMMAND ----------
+dbutils.library.restartPython()
 
 # COMMAND ----------
 from pathlib import Path

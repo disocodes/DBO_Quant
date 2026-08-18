@@ -5,9 +5,9 @@
 # MAGIC
 # MAGIC Default flow:
 # MAGIC
-# MAGIC `refresh data → selected strategy → Monte Carlo(strategy run) → portfolio optimization (CPU) → persisted OpenBB results`
+# MAGIC `refresh data → selected strategy → Monte Carlo baseline → portfolio optimization (CPU) → Monte Carlo optimized allocation → persisted OpenBB results`
 # MAGIC
-# MAGIC Optional final step: redeploy the Databricks App from Git so OpenBB immediately sees the latest backend code. App deployment is disabled by default.
+# MAGIC The optimizer consumes the selected strategy's latest effective allocation/universe. Optional final step: redeploy the Databricks App from Git so OpenBB immediately sees the latest backend code. App deployment is disabled by default.
 
 # COMMAND ----------
 # MAGIC %pip install -q --upgrade "databricks-sdk>=0.74,<1"
@@ -57,14 +57,13 @@ if not isinstance(STRATEGY_PARAMS,dict):
 def notebook_path(relative: str) -> str:
     return f"{ROOT}/{relative.lstrip('/')}"
 
-def notebook_task(task_key: str, relative: str, *, depends_on=None, base_parameters=None, disabled=False):
+def notebook_task(task_key: str, relative: str, *, depends_on=None, base_parameters=None):
     task={
         'task_key':task_key,
         'notebook_task':{
             'notebook_path':notebook_path(relative),
             'source':'WORKSPACE',
         },
-        'disabled':bool(disabled),
     }
     if depends_on:
         task['depends_on']=[{'task_key':x} for x in depends_on]
@@ -82,18 +81,43 @@ tasks.append(notebook_task('strategy',STRATEGY,depends_on=previous,base_paramete
 previous=['strategy']
 
 if INCLUDE_MC:
-    mc_params={
-        'source_type':'strategy_run',
-        'source_id':'{{tasks.strategy.values.strategy_run_id}}',
-    }
-    tasks.append(notebook_task('monte_carlo','notebooks/portfolio/02_MONTE_CARLO.py',depends_on=previous,base_parameters=mc_params))
-    previous=['monte_carlo']
+    tasks.append(notebook_task(
+        'monte_carlo_strategy',
+        'notebooks/portfolio/02_MONTE_CARLO.py',
+        depends_on=previous,
+        base_parameters={
+            'source_type':'strategy_run',
+            'source_id':'{{tasks.strategy.values.strategy_run_id}}',
+        },
+    ))
+    previous=['monte_carlo_strategy']
 
 if INCLUDE_OPT:
     # Solver comes from optimization/portfolio_optimization/portfolio_config.toml.
-    # The committed default is CPU (CVXPY + CLARABEL).
-    tasks.append(notebook_task('portfolio_optimization','notebooks/portfolio/04_PORTFOLIO_OPTIMIZATION_DATABRICKS.py',depends_on=previous))
+    # The committed default is CPU (CVXPY + CLARABEL). The optimization universe
+    # and reference weights come from the exact selected strategy run above.
+    tasks.append(notebook_task(
+        'portfolio_optimization',
+        'notebooks/portfolio/04_PORTFOLIO_OPTIMIZATION_DATABRICKS.py',
+        depends_on=previous,
+        base_parameters={
+            'source_type':'strategy_run',
+            'source_id':'{{tasks.strategy.values.strategy_run_id}}',
+        },
+    ))
     previous=['portfolio_optimization']
+
+    if INCLUDE_MC:
+        tasks.append(notebook_task(
+            'monte_carlo_optimized',
+            'notebooks/portfolio/02_MONTE_CARLO.py',
+            depends_on=previous,
+            base_parameters={
+                'source_type':'optimization_run',
+                'source_id':'{{tasks.portfolio_optimization.values.optimization_run_id}}',
+            },
+        ))
+        previous=['monte_carlo_optimized']
 
 if INCLUDE_APP:
     tasks.append(notebook_task('deploy_openbb_backend','notebooks/platform/04_DEPLOY_APP_AUTOMATED.py',depends_on=previous))
@@ -135,4 +159,4 @@ print('\nRun from Workflows > Jobs, or call w.jobs.run_now(job_id=...).')
 # COMMAND ----------
 # MAGIC %md
 # MAGIC ## OpenBB test path
-# MAGIC After a successful run, persisted strategy, Monte Carlo, and optimization outputs are already in Unity Catalog. If the DBO_Quant App is deployed, refresh OpenBB Workspace widgets. If `include_app_deploy=true`, the final task requests a new App deployment from the repository automatically.
+# MAGIC After a successful default run, Unity Catalog contains the strategy backtest, a Monte Carlo baseline for the strategy allocation, the CPU-default optimized allocation/frontier, and a second Monte Carlo simulation of that optimized allocation. If the DBO_Quant App is already deployed, refresh OpenBB Workspace widgets. If `include_app_deploy=true`, the final task requests a new App deployment from the repository automatically.

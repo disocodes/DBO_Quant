@@ -12,7 +12,6 @@ from .workflow import (
     require_optimization_runtime,
     run_monthly_rebalancing,
 )
-from nvidia_bridge import DatabricksOptimizationBridge, NvidiaAnalysisWriter
 
 MARKER_TABLE = "dbo_quant_project_config"
 
@@ -184,6 +183,10 @@ def run_external_workflow(
 
     if not push_results:
         return output
+
+    # The SQL write-back bridge is external-route infrastructure. Import it only
+    # here so Databricks-native CPU/GPU runs do not require SQL connector packages.
+    from nvidia_bridge import DatabricksOptimizationBridge, NvidiaAnalysisWriter
 
     result_row = output["result_row"]
     optimal_portfolio = output["optimal_portfolio"]

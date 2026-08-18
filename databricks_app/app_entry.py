@@ -1,12 +1,39 @@
 """DBO_Quant application entrypoint.
 
-Imports the core OpenBB/Databricks API and adds optional NVIDIA portfolio-analysis routes.
+Imports the core OpenBB/Databricks API and adds saved-portfolio and optional NVIDIA
+portfolio-analysis routes. openbb-platform-api discovers these routes automatically.
 """
 from typing import Optional
 
 from fastapi import HTTPException
 
 from app import app, fq, query_records
+
+
+@app.get(
+    "/api/quant/portfolio/saved",
+    openapi_extra={"widget_config": {"name": "Saved Portfolios", "category": "Portfolio Lab"}},
+)
+def saved_portfolios(limit: int = 100) -> list[dict]:
+    limit = max(1, min(limit, 1000))
+    return query_records(
+        f"SELECT * FROM {fq('portfolio_definitions')} ORDER BY created_at DESC LIMIT {limit}"
+    )
+
+
+@app.get(
+    "/api/quant/portfolio/holdings",
+    openapi_extra={"widget_config": {"name": "Portfolio Holdings", "category": "Portfolio Lab"}},
+)
+def saved_portfolio_holdings(portfolio_id: str) -> list[dict]:
+    return query_records(
+        f"""SELECT portfolio_id, as_of_date, symbol, weight, quantity, market_value, source
+        FROM {fq('portfolio_holdings')}
+        WHERE portfolio_id = ?
+          AND as_of_date = (SELECT MAX(as_of_date) FROM {fq('portfolio_holdings')} WHERE portfolio_id = ?)
+        ORDER BY weight DESC, symbol""",
+        [portfolio_id, portfolio_id],
+    )
 
 
 @app.get(

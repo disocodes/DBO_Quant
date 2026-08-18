@@ -50,6 +50,20 @@ Before deploying the App:
 
 ## Deployment
 
+The DBO_Quant project is already cloned into a Databricks workspace Git folder. Use that existing workspace copy as the App source rather than configuring a second GitHub clone path for the App.
+
+The App deployment source should be:
+
+```text
+<repo_workspace_root>/databricks_app
+```
+
+Example:
+
+```text
+/Workspace/Users/user@example.com/DBO_Quant/databricks_app
+```
+
 ### Guided deployment preparation
 
 Use:
@@ -68,7 +82,7 @@ Use:
 notebooks/platform/04_DEPLOY_APP_AUTOMATED.py
 ```
 
-This notebook is intended for an existing App whose Git source, Warehouse resource, and permissions are already configured.
+This notebook snapshots `databricks_app/` directly from the existing Databricks workspace Git folder. It does not require a Git URL or branch parameter.
 
 It can be added as the final task of:
 
@@ -77,6 +91,10 @@ notebooks/workflows/00_CONFIGURE_STRATEGY_FLOW.py
 ```
 
 by setting `include_app_deploy=true`.
+
+The workflow passes the same `repo_workspace_root` used by its notebook tasks into the App deployment task.
+
+App redeployment is not required for ordinary data-only research runs. New persisted results are read from Unity Catalog by the already-running App.
 
 ## OpenBB endpoints
 

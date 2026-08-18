@@ -1,7 +1,15 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # 01 — Ingest Market Data with OpenBB ODP
-# MAGIC **Prerequisite:** 00_SETUP. The canonical DBO_Quant catalog/schema is discovered automatically from setup. This notebook loads historical prices through permanent OpenBB ODP and writes them to Delta.
+# MAGIC **Prerequisite:** `00_SETUP.py`. The canonical DBO_Quant catalog/schema is discovered automatically from setup.
+# MAGIC
+# MAGIC Databricks serverless notebook sessions do not guarantee that Python packages installed by another notebook remain available. This notebook therefore installs its own pinned OpenBB ingestion dependencies before importing `openbb`.
+
+# COMMAND ----------
+# MAGIC %pip install -q "openbb==4.7.2" "openbb-yfinance==1.6.3"
+
+# COMMAND ----------
+dbutils.library.restartPython()
 
 # COMMAND ----------
 from pathlib import Path

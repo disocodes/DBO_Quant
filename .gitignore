@@ -1,0 +1,22 @@
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Notebook / local tooling
+.ipynb_checkpoints/
+
+# Build output
+build/
+dist/
+*.egg-info/
+
+# Local GPU workflow output
+gpu_output/

@@ -1,7 +1,7 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # 00 — Setup
-# MAGIC Run this notebook **once** after cloning the repo. It installs dependencies, creates the Unity Catalog schema/tables, and verifies the quant engine. When it finishes, continue to **01_INGEST_DATA**.
+# MAGIC Run this notebook **once** after cloning the repo. It installs dependencies, creates/updates the Unity Catalog schema, and verifies the quant engine. When it finishes, continue to **01_INGEST_DATA**.
 
 # COMMAND ----------
 %pip install -q "openbb==4.7.2" "openbb-yfinance==1.6.3" "openbb-platform-api==1.3.6" "databricks-sdk>=0.50,<1" "databricks-sql-connector>=4,<5" "databricks-feature-engineering>=0.13.0" "pandas>=2.2,<3" "numpy>=1.26" "plotly>=6,<7"
@@ -30,14 +30,24 @@ if not CATALOG or not SCHEMA:
     raise ValueError("catalog and schema are required")
 spark.sql(f"DESCRIBE CATALOG `{CATALOG}`")
 spark.sql(f"CREATE SCHEMA IF NOT EXISTS `{CATALOG}`.`{SCHEMA}`")
-sql_text = (repo_root / "sql" / "quant_platform_schema.sql").read_text().replace("{{CATALOG}}", CATALOG).replace("{{SCHEMA}}", SCHEMA)
-for stmt in [s.strip() for s in sql_text.split(";") if s.strip()]:
-    executable = "\n".join(line for line in stmt.splitlines() if not line.strip().startswith("--")).strip()
-    if executable:
-        spark.sql(executable)
+
+# Apply every SQL file in order. New platform features add migrations here without
+# making the setup notebook longer.
+for sql_path in sorted((repo_root / "sql").glob("*.sql")):
+    print("Applying", sql_path.name)
+    sql_text = sql_path.read_text().replace("{{CATALOG}}", CATALOG).replace("{{SCHEMA}}", SCHEMA)
+    for stmt in [s.strip() for s in sql_text.split(";") if s.strip()]:
+        executable = "\n".join(line for line in stmt.splitlines() if not line.strip().startswith("--")).strip()
+        if executable:
+            spark.sql(executable)
 
 # COMMAND ----------
-required = ["prices_daily","strategy_runs","strategy_daily","strategy_metrics","portfolio_comparison_runs","monte_carlo_runs","optimization_runs","model_predictions"]
+required = [
+    "prices_daily", "strategy_runs", "strategy_daily", "strategy_metrics",
+    "portfolio_comparison_runs", "monte_carlo_runs", "optimization_runs",
+    "optimization_backtest_metrics", "optimization_rebalance_runs",
+    "optimization_rebalance_events", "optimization_rebalance_daily", "model_predictions",
+]
 rows=[]
 for name in required:
     spark.table(f"{CATALOG}.{SCHEMA}.{name}").limit(1).collect()

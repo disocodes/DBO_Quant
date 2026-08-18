@@ -1,7 +1,12 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # Custom Strategy Template
-# MAGIC Copy this notebook, rename it, and edit only `my_strategy()` and the parameter widgets. The function must return a **date × asset DataFrame of target weights**. The shared engine handles lag, rebalancing, costs, weight drift, metrics and persistence.
+# MAGIC Copy this notebook, rename it, and edit the strategy logic and parameter widgets. The strategy function must return a **date × asset DataFrame of target weights**; the shared DBO_Quant engine handles execution mechanics, costs, metrics, and persistence.
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 1. Load the Research Engine and Configure Inputs
+# MAGIC Import the common research helpers and define example widgets for the asset universe, benchmark, custom strategy parameters, rebalancing, capital, and trading costs.
 
 # COMMAND ----------
 from pathlib import Path
@@ -18,12 +23,22 @@ current_catalog=spark.sql('SELECT current_catalog() c').first()['c']
 for n,d in [('catalog',current_catalog),('schema','openbb_quant'),('symbols','SPY,QQQ,IEF,GLD'),('benchmark','SPY'),('momentum_lookback','126'),('volatility_lookback','63'),('top_n','2'),('rebalance','monthly'),('initial_capital','100000'),('fee_bps','5'),('slippage_bps','2')]: dbutils.widgets.text(n,d)
 
 # COMMAND ----------
+# MAGIC %md
+# MAGIC ## 2. Define the Custom Strategy
+# MAGIC Implement the strategy-specific signal and convert it to target portfolio weights. Replace this example function when creating a new strategy notebook.
+
+# COMMAND ----------
 def my_strategy(prices: pd.DataFrame, params: dict) -> pd.DataFrame:
     """Example: rank assets by positive momentum divided by volatility."""
     momentum = prices.pct_change(int(params['momentum_lookback']), fill_method=None)
     volatility = prices.pct_change(fill_method=None).rolling(int(params['volatility_lookback'])).std()
     score = (momentum / volatility.replace(0, np.nan)).where(momentum > 0)
     return scores_to_weights(score, top_n=int(params['top_n']))
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 3. Run and Persist the Custom Backtest
+# MAGIC Parse the custom parameters, execute the strategy through the shared engine, display recent performance and metrics, and print the persisted `run_id`.
 
 # COMMAND ----------
 symbols=[x.strip().upper() for x in dbutils.widgets.get('symbols').split(',') if x.strip()]

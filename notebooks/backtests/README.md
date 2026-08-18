@@ -1,44 +1,102 @@
-# Backtest strategy notebooks
+# Strategy Backtests
 
-This folder contains one research notebook per strategy. Run `notebooks/00_SETUP.py` once and keep market data current with `notebooks/01_INGEST_DATA.py`.
+This folder contains one Databricks notebook per strategy. Each notebook defines strategy logic and parameters and delegates execution to the shared engine in `src/quant_platform/`.
 
-## Purpose
+## Prerequisites
 
-Backtesting answers:
+Run:
 
-> How would this strategy have behaved over historical market data under the common DBO_Quant execution assumptions?
+```text
+notebooks/00_SETUP.py
+notebooks/01_INGEST_DATA.py
+```
 
-Every notebook delegates execution to the shared engine in `src/quant_platform/`. The notebook defines strategy logic and parameters; the engine handles implementation lag, rebalancing, transaction costs, weight drift, benchmark comparison, metrics, holdings, and persistence.
+before running a strategy notebook.
+
+## Built-in strategies
+
+```text
+01_FIXED_ALLOCATION.py
+02_INVERSE_VOLATILITY.py
+03_MOVING_AVERAGE_TREND.py
+04_TIME_SERIES_MOMENTUM.py
+05_CROSS_SECTIONAL_MOMENTUM.py
+06_MEAN_REVERSION.py
+07_DUAL_MOMENTUM.py
+08_BUY_AND_HOLD.py
+90_CUSTOM_STRATEGY_TEMPLATE.py
+```
+
+## How a strategy run works
+
+```text
+strategy notebook
+      ↓
+target weights
+      ↓
+shared research engine
+      ↓
+implementation lag
+rebalancing
+transaction costs
+weight drift
+benchmark comparison
+metrics
+      ↓
+Unity Catalog
+```
+
+A successful run persists:
+
+- a `run_id` in `strategy_runs`;
+- daily equity, return, benchmark, drawdown, and turnover data in `strategy_daily`;
+- effective and target holdings in `strategy_holdings`;
+- performance and risk metrics in `strategy_metrics`.
+
+When the notebook runs as a Databricks Job task, the shared persistence layer also publishes the run identifier as the task value `strategy_run_id`.
 
 ## Run a built-in strategy
 
-Open any numbered notebook and run all cells. A successful run prints a `run_id` and persists its equity curve, holdings, and metrics to Unity Catalog.
+Open the required strategy notebook, configure its widgets, and run all cells.
 
-Next actions:
+After completion, use the resulting `run_id` with:
 
 ```text
-single run
-   ├─→ notebooks/portfolio/01_COMPARE_RUNS.py
-   └─→ notebooks/portfolio/02_MONTE_CARLO.py
-        source_type = strategy_run
-        source_id   = <run_id>
+notebooks/portfolio/01_COMPARE_RUNS.py
 ```
 
-When a strategy runs inside a Lakeflow Job, the common persistence layer also publishes `strategy_run_id` as a task value so downstream Monte Carlo can consume it automatically.
+to compare multiple strategies, or:
 
-## Add a custom strategy
+```text
+notebooks/portfolio/02_MONTE_CARLO.py
+source_type = strategy_run
+source_id   = <run_id>
+```
 
-1. Copy `90_CUSTOM_STRATEGY_TEMPLATE.py`.
-2. Rename it, for example `20_VALUE_MOMENTUM.py`.
-3. Edit the strategy function and parameter widgets.
-4. Keep the function contract:
+to run forward-risk simulation on the strategy's latest effective allocation.
+
+## Create a custom strategy
+
+Copy:
+
+```text
+90_CUSTOM_STRATEGY_TEMPLATE.py
+```
+
+Rename the copy and implement:
 
 ```python
 def strategy(prices, params):
     return target_weights_dataframe
 ```
 
-The returned DataFrame uses dates as the index and symbols as columns. Values are target portfolio weights. Do not modify the common engine for ordinary strategy development.
+The returned DataFrame must use:
+
+- dates as the index;
+- symbols as columns;
+- target portfolio weights as values.
+
+Keep strategy-specific logic in the notebook. Execution rules and persistence remain in the common engine.
 
 ## Automate a strategy
 
@@ -48,8 +106,29 @@ Use:
 notebooks/workflows/00_CONFIGURE_STRATEGY_FLOW.py
 ```
 
-Set `strategy_notebook` to any built-in strategy or your copied custom notebook. Strategy widget values can be supplied with `strategy_parameters_json`. The generated Job can refresh market data, run the strategy, run Monte Carlo on its exact `strategy_run_id`, optionally run portfolio optimization, and optionally redeploy the OpenBB backend.
+Set `strategy_notebook` to the relative path of any built-in or custom strategy notebook. Strategy widget values can be supplied through `strategy_parameters_json`.
+
+The default automated workflow runs:
+
+```text
+market-data refresh
+      ↓
+selected strategy
+      ↓
+Monte Carlo baseline
+      ↓
+portfolio optimization
+      ↓
+Monte Carlo on optimized allocation
+```
 
 ## OpenBB outputs
 
-After the Databricks App is deployed, OpenBB Workspace can display strategy run metadata, performance/risk metrics, equity and benchmark curves, drawdown, and persisted comparison curves.
+After the Databricks App is deployed, OpenBB Workspace can display:
+
+- strategy run metadata;
+- performance and risk metrics;
+- strategy equity curve;
+- benchmark curve;
+- drawdown curve;
+- persisted strategy-comparison curves.

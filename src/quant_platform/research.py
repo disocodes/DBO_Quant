@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from .engine import REGISTRY, WeightStrategy, run_backtest
+from .engine import WeightStrategy, run_backtest
+from .location import discover_with_spark
 
 
 def load_price_matrix(spark, table: str, symbols: list[str], benchmark: str | None = None):
@@ -103,8 +104,8 @@ def persist_backtest(spark, catalog: str, schema: str, result, *, strategy_name:
 def run_research_strategy(
     spark,
     *,
-    catalog: str,
-    schema: str,
+    catalog: str | None = None,
+    schema: str | None = None,
     symbols: list[str],
     benchmark: str,
     strategy_name: str,
@@ -116,7 +117,15 @@ def run_research_strategy(
     slippage_bps: float = 2.0,
     notebook_path: str = "",
 ):
-    """Common entry point used by every strategy notebook."""
+    """Common entry point used by every strategy notebook.
+
+    The canonical namespace registered by 00_SETUP is authoritative. `catalog` and
+    `schema` are retained for backward compatibility but are not used to silently
+    retarget research to another deployment.
+    """
+    location = discover_with_spark(spark)
+    catalog, schema = location.catalog, location.schema
+
     prices, benchmark_prices = load_price_matrix(
         spark, f"{catalog}.{schema}.prices_daily", symbols, benchmark
     )
@@ -129,7 +138,7 @@ def run_research_strategy(
         fee_bps=fee_bps,
         slippage_bps=slippage_bps,
         benchmark_prices=benchmark_prices,
-        metadata={"symbols": symbols, "benchmark": benchmark, "notebook": notebook_path},
+        metadata={"symbols": symbols, "benchmark": benchmark, "notebook": notebook_path, "namespace": location.namespace},
     )
     persist_backtest(
         spark,

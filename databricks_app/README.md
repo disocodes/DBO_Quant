@@ -1,42 +1,69 @@
 # DBO_Quant API App
 
-This folder is the **thin API backend** for OpenBB Workspace. It is not a dashboard and is not where you run research notebooks.
+This folder is the thin API backend for OpenBB Workspace. It is not a research notebook environment and does not provide a second dashboard.
 
-For the guided deployment workflow, use **`notebooks/06_DEPLOY_APP.py`**.
+Use the guided deployment notebook:
+
+```text
+notebooks/platform/02_DEPLOY_APP.py
+```
+
+## Purpose
+
+The App reads persisted DBO_Quant results from Unity Catalog through a Databricks SQL Warehouse and exposes them as OpenBB-compatible API routes and dynamically generated widgets.
 
 ## First deployment
 
-You need only:
+Prerequisites:
 
-1. DBO_Quant tables created by `notebooks/00_SETUP.py`.
-2. A Databricks SQL Warehouse.
-3. A Databricks App using this folder as its source.
-4. A SQL Warehouse App resource with key `sql_warehouse` and **Can use** permission.
-5. `FINANCE_CATALOG` in `app.yaml` changed from `REPLACE_WITH_YOUR_CATALOG` to the catalog used during setup.
-6. App service-principal permissions: `USE CATALOG`, `USE SCHEMA`, and `SELECT` on the DBO_Quant tables.
+1. `notebooks/00_SETUP.py` has completed successfully.
+2. Research data/results exist in the canonical DBO_Quant namespace.
+3. A Databricks SQL Warehouse is available.
+4. A Databricks App is created using `databricks_app/` as its source.
+5. The App has a SQL Warehouse resource with key `sql_warehouse` and `CAN USE` permission.
+6. `FINANCE_CATALOG` and `FINANCE_SCHEMA` match the canonical namespace printed by the deployment notebook.
+7. The App service principal has `USE CATALOG`, `USE SCHEMA`, and `SELECT` permissions for the DBO_Quant schema.
 
-The App can then serve existing market data and saved research results without any Lakeflow Jobs.
+The launcher uses `app_entry.py`, which imports the core API and registers the portfolio/NVIDIA routes before OpenBB widget discovery.
 
-## Optional production Jobs
+## OpenBB visualization routes
 
-Later, if you want OpenBB Workspace forms to launch new calculations, create Jobs from `jobs/backtest_worker.py`, `jobs/monte_carlo_worker.py`, and `jobs/comparison_worker.py`, then populate the corresponding App environment variables.
+The App exposes chart-ready persisted outputs including:
+
+- backtest equity, benchmark, and drawdown curves;
+- portfolio-comparison curves;
+- Monte Carlo fan chart;
+- Monte Carlo sample paths;
+- Mean-CVaR efficient frontier;
+- optimized allocation bar chart;
+- NVIDIA rebalancing portfolio-value curve.
+
+It also exposes saved portfolio holdings, run metadata, optimizer metrics, rebalancing events, features, predictions, and other table-style results.
 
 ## Endpoints
 
-- `/api/widgets.json` — OpenBB Workspace widget discovery
-- `/api/v1/...` — native OpenBB ODP endpoints
-- `/api/quant/...` — DBO_Quant backtest, comparison, Monte Carlo, optimization, feature and model-result endpoints
+```text
+/api/widgets.json        OpenBB widget discovery
+/api/v1/...              native OpenBB ODP routes
+/api/quant/...           DBO_Quant research routes
+```
 
 Connect OpenBB Workspace to:
 
 ```text
-https://<your-app-url>/api
+https://<databricks-app-url>/api
 ```
 
-For initial authenticated testing, add:
+Continue with:
 
 ```text
-Authorization: Bearer <Databricks OAuth token>
+notebooks/platform/03_OPENBB_WORKSPACE.py
 ```
 
-Continue with `notebooks/07_OPENBB_WORKSPACE.py` after the App is running.
+## Optional Jobs
+
+Lakeflow Jobs are not required to view persisted results. Add the backtest, Monte Carlo, and comparison Jobs only when OpenBB forms should launch calculations remotely.
+
+## Cleanup
+
+Use `notebooks/99_CLEANUP.py` and provide the App name explicitly if the App itself should be deleted.

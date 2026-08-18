@@ -1,20 +1,54 @@
 # Databricks Serving
 
-Serving is a **first-class subsystem** of this architecture and is deliberately separate from the OpenBB Workspace gateway.
+Serving is an optional subsystem for low-latency model inference and online feature lookup. It is separate from the core research workflow and from the OpenBB API App.
 
 ## Model Serving
 
-Use `model_serving_setup.py` after a real model is registered in Unity Catalog. Suitable examples include expected-return models, volatility forecasts, regime classifiers, credit/risk models, or NLP/sentiment models. The thin Databricks App can expose persisted predictions to Workspace, while latency-sensitive applications can call Model Serving directly.
+Use `model_serving_setup.py` after a real model has been registered in Unity Catalog.
+
+Typical use cases include:
+
+- expected-return models;
+- volatility forecasts;
+- regime classifiers;
+- credit/risk models;
+- sentiment or NLP models.
+
+Persist model outputs to the canonical DBO_Quant tables when they should appear in OpenBB Workspace.
 
 ## Feature Serving
 
-`feature_serving_setup.py` provides two explicit steps:
+`feature_serving_setup.py` contains the explicit online-feature workflow:
 
-1. `prepare_online_feature_store(...)` — creates/reuses a Databricks Online Feature Store and publishes `equity_features_latest` (or another primary-keyed feature table).
-2. `create_feature_serving(...)` — creates a Unity Catalog `FeatureSpec` and a Feature Serving endpoint.
+1. prepare or reuse an Online Feature Store;
+2. publish a primary-keyed feature table such as `equity_features_latest`;
+3. create a Unity Catalog `FeatureSpec`;
+4. create a Feature Serving endpoint.
 
-Creating an online feature store provisions billable infrastructure, so the main setup notebook **does not create it automatically**. The notebook does install `databricks-feature-engineering>=0.13.0` and prepares `equity_features_latest` with a primary key and Change Data Feed so you can opt into the online-serving step deliberately.
+Online stores and serving endpoints can create billable infrastructure, so `00_SETUP.py` does not provision them automatically.
 
-For `TRIGGERED` or `CONTINUOUS` publication, keep Change Data Feed enabled. The source table primary key must be non-null.
+## What does not require Serving
 
-Historical backtests, Monte Carlo simulations, parameter sweeps and bulk portfolio comparisons remain Databricks Jobs/SQL workloads; they should not be disguised as inference endpoints.
+Serving is not required for:
+
+- strategy backtests;
+- portfolio comparisons;
+- Monte Carlo simulation;
+- NVIDIA portfolio optimization or rebalancing;
+- OpenBB visualization of persisted results.
+
+Those workflows use Unity Catalog/Delta as their system of record.
+
+## Guided notebook
+
+Use:
+
+```text
+notebooks/platform/01_SERVING.py
+```
+
+when you intentionally want to create or inspect Serving infrastructure.
+
+## Cleanup
+
+Serving endpoints created specifically for DBO_Quant can be supplied by name to `notebooks/99_CLEANUP.py` for explicit deletion.

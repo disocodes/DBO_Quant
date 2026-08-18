@@ -8,11 +8,19 @@ from pathlib import Path
 import sys
 repo_root=Path.cwd()
 for c in [repo_root,*repo_root.parents]:
-    if (c/'serving').exists(): repo_root=c; break
+    if (c/'src'/'quant_platform').exists(): repo_root=c; break
 sys.path.insert(0,str(repo_root))
-current_catalog=spark.sql('SELECT current_catalog() c').first()['c']
-for n,d in [('catalog',current_catalog),('schema','openbb_quant'),('create_model_endpoint','false'),('uc_model_name',''),('model_version','1'),('model_endpoint_name','dbo-quant-model')]: dbutils.widgets.text(n,d)
-CATALOG=dbutils.widgets.get('catalog'); SCHEMA=dbutils.widgets.get('schema')
+sys.path.insert(0,str(repo_root/'src'))
+from quant_platform.location import discover_with_spark
+
+location=discover_with_spark(spark)
+CATALOG,SCHEMA=location.catalog,location.schema
+print('DBO_Quant namespace:',location.namespace)
+
+dbutils.widgets.text('create_model_endpoint','false')
+dbutils.widgets.text('uc_model_name','')
+dbutils.widgets.text('model_version','1')
+dbutils.widgets.text('model_endpoint_name','dbo-quant-model')
 
 # COMMAND ----------
 print('Feature table:',f'{CATALOG}.{SCHEMA}.equity_features_latest')
@@ -31,4 +39,5 @@ else:
 
 # COMMAND ----------
 print('SERVING STEP COMPLETE')
+print('If an endpoint/store is created, record its name for notebooks/99_CLEANUP.py.')
 print('NEXT → notebooks/platform/02_DEPLOY_APP.py')

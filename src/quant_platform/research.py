@@ -98,6 +98,13 @@ def persist_backtest(spark, catalog: str, schema: str, result, *, strategy_name:
             numeric = None
         metrics.append({"run_id": result.run_id, "metric_name": name, "metric_value": numeric, "metric_text": ""})
     spark.createDataFrame(pd.DataFrame(metrics)).write.mode("append").saveAsTable(f"{catalog}.{schema}.strategy_metrics")
+
+    # When invoked by a Lakeflow Job, publish the run ID for downstream tasks.
+    try:
+        from databricks.sdk.runtime import dbutils
+        dbutils.jobs.taskValues.set(key="strategy_run_id", value=str(result.run_id))
+    except Exception:
+        pass
     return result.run_id
 
 

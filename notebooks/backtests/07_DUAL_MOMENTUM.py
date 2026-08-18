@@ -1,6 +1,12 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # Backtest — Dual Momentum
+# MAGIC Configure the dual-momentum lookback and selection count, execute the strategy through the shared DBO_Quant engine, and persist the resulting run.
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 1. Load the Research Engine and Configure Inputs
+# MAGIC Import the common strategy runner and configure the universe, benchmark, momentum lookback, number of selected assets, rebalancing frequency, capital, and trading costs.
 
 # COMMAND ----------
 from pathlib import Path
@@ -12,6 +18,11 @@ sys.path.insert(0,str(repo_root/'src'))
 from quant_platform.research import run_research_strategy
 current_catalog=spark.sql('SELECT current_catalog() c').first()['c']
 for n,d in [('catalog',current_catalog),('schema','openbb_quant'),('symbols','SPY,QQQ,IEF,GLD'),('benchmark','SPY'),('lookback','252'),('top_n','1'),('rebalance','monthly'),('initial_capital','100000'),('fee_bps','5'),('slippage_bps','2')]: dbutils.widgets.text(n,d)
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 2. Run and Persist the Backtest
+# MAGIC Build the dual-momentum parameters, execute the strategy, display recent performance and metrics, and print the persisted `run_id` for downstream analysis.
 
 # COMMAND ----------
 symbols=[x.strip().upper() for x in dbutils.widgets.get('symbols').split(',') if x.strip()]

@@ -3,8 +3,8 @@
 # MAGIC # NVIDIA GPU Portfolio Optimization — Databricks Route
 # MAGIC Run this notebook on GPU-enabled Databricks Runtime ML compute.
 # MAGIC
-# MAGIC **No `.env`, workspace URL, OAuth login, Databricks profile, or SQL Warehouse HTTP path is required here.**
-# MAGIC This notebook uses the attached Databricks identity plus native Spark/Unity Catalog access.
+# MAGIC **No `.env`, workspace URL, OAuth login, Databricks profile, SQL Warehouse path, catalog name, or schema name is required here.**
+# MAGIC The setup notebook registers the canonical DBO_Quant Unity Catalog namespace, and this notebook discovers it automatically.
 # MAGIC Portfolio/optimizer settings come from `gpu/nvidia_portfolio_optimization/portfolio_config.toml`.
 
 # COMMAND ----------
@@ -21,14 +21,13 @@ sys.path.insert(0,str(repo_root))
 
 from gpu.nvidia_portfolio_optimization.config import load_portfolio_config
 from gpu.nvidia_portfolio_optimization.runner import execute_gpu_analysis
-from gpu.nvidia_portfolio_optimization.databricks_native import load_inputs_spark, persist_result_spark
+from gpu.nvidia_portfolio_optimization.databricks_native import discover_location_spark, load_inputs_spark, persist_result_spark
 from gpu.nvidia_portfolio_optimization.workflow import require_nvidia_runtime
 
 require_nvidia_runtime()
 CFG=load_portfolio_config(repo_root)
-CATALOG=spark.sql('SELECT current_catalog() c').first()['c']
-SCHEMA='openbb_quant'
-print('Catalog:',CATALOG,'Schema:',SCHEMA)
+CATALOG,SCHEMA=discover_location_spark(spark)
+print('DBO_Quant namespace:',f'{CATALOG}.{SCHEMA}')
 print('Portfolio config:',CFG)
 
 # COMMAND ----------

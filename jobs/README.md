@@ -1,29 +1,61 @@
-# Databricks Job workers
+# Databricks Job Workers
 
-These workers are optional production execution paths. Interactive research starts with the notebooks under `notebooks/`; create Jobs when calculations should be launched repeatedly, scheduled, or triggered from the OpenBB-facing App.
+This folder contains optional production workers that execute individual DBO_Quant calculations as Databricks Jobs.
 
-For a complete scheduled strategy workflow rather than individual workers, use:
+Use these workers when an API or external process should trigger a specific calculation. For the complete scheduled strategy pipeline, use the multi-task workflow under `notebooks/workflows/` instead.
+
+## Worker map
 
 ```text
-notebooks/workflows/00_CONFIGURE_STRATEGY_FLOW.py
+backtest_worker.py
+    execute a strategy backtest
+
+monte_carlo_worker.py
+    execute a Monte Carlo simulation
+
+comparison_worker.py
+    compare existing strategy runs
 ```
 
-## Workers
+## `backtest_worker.py`
 
-### `backtest_worker.py`
-Runs arbitrary target-weight strategy backtests using the shared DBO_Quant engine. Built-in strategies come from `src/quant_platform/`; additional adapters can consume point-in-time factor snapshots or model predictions.
+Runs a target-weight strategy through the shared DBO_Quant backtest engine.
 
-### `monte_carlo_worker.py`
-Runs historical-block-bootstrap or multivariate-normal portfolio simulations with configurable horizon, simulation count, rebalancing interval, block size, and persisted sample paths.
+It supports the same execution model used by the interactive strategy notebooks, including transaction costs, rebalancing, implementation lag, metrics, and persistence.
 
-### `comparison_worker.py`
-Builds a persisted common-period comparison from two or more existing strategy `run_id` values.
+## `monte_carlo_worker.py`
 
-## Deployment
+Runs portfolio simulations using the shared Monte Carlo engine.
 
-Create one Lakeflow Job/Notebook task for each worker needed by the API. The workers use `dbutils.widgets` for job parameters, so configure job-level parameters or notebook-task base parameters.
+Supported simulation methods include:
 
-When OpenBB forms should trigger calculations, grant the Databricks App the required Job permission and configure:
+- historical block bootstrap;
+- multivariate normal simulation.
+
+The worker can persist:
+
+- Monte Carlo run metadata;
+- percentile curves;
+- sample paths;
+- summary statistics.
+
+## `comparison_worker.py`
+
+Builds a persisted comparison from two or more existing strategy `run_id` values over their common analysis period.
+
+It writes comparison metadata, metrics, members, and daily comparison curves.
+
+## Job parameters
+
+The workers use Databricks notebook/job parameters through `dbutils.widgets`.
+
+Configure the required parameters in the Job definition or supply them when triggering the Job.
+
+## OpenBB-triggered workers
+
+The Databricks App can trigger these dedicated Jobs through API endpoints.
+
+When enabled, configure:
 
 ```text
 BACKTEST_JOB_ID
@@ -31,16 +63,42 @@ MONTE_CARLO_JOB_ID
 COMPARISON_JOB_ID
 ```
 
-The App submits the Job and returns the Databricks run ID. Heavy research computation remains outside the App request process.
+and grant the App identity permission to run the corresponding Jobs.
 
-## End-to-end strategy automation
+The App submits the Job and returns the Databricks run identifier while computation remains outside the App request process.
 
-`notebooks/workflows/00_CONFIGURE_STRATEGY_FLOW.py` creates a separate multi-task research Job that can refresh data, execute any selected strategy notebook, pass its generated `strategy_run_id` into Monte Carlo, run CPU-default portfolio optimization, and optionally redeploy the OpenBB backend.
+## End-to-end strategy workflow
 
-## When these individual workers are not needed
+For a complete strategy pipeline, use:
 
-You do not need these worker Jobs to run interactive strategy notebooks, run the portfolio Monte Carlo notebook, run portfolio optimization, use the multi-task strategy automation flow, or review already-persisted results in OpenBB.
+```text
+notebooks/workflows/00_CONFIGURE_STRATEGY_FLOW.py
+```
+
+That workflow can run:
+
+```text
+market-data refresh
+      ↓
+selected strategy
+      ↓
+Monte Carlo baseline
+      ↓
+portfolio optimization
+      ↓
+Monte Carlo on optimized allocation
+      ↓
+optional App redeployment
+```
+
+The multi-task workflow does not require these individual worker files.
 
 ## Cleanup
 
-If Jobs were created specifically for DBO_Quant, their IDs can be supplied to `notebooks/99_CLEANUP.py` for explicit deletion.
+If dedicated worker Jobs were created for DBO_Quant, supply their Job IDs to:
+
+```text
+notebooks/99_CLEANUP.py
+```
+
+for explicit deletion.

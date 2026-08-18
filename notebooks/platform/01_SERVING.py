@@ -1,7 +1,12 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # Platform — Databricks Serving
-# MAGIC Optional. Use this only when DBO_Quant needs a Unity Catalog model exposed through Model Serving or low-latency online features through Feature Serving.
+# MAGIC Optional. Use this notebook only when DBO_Quant needs a Unity Catalog model exposed through Model Serving or low-latency online features through Feature Serving.
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 1. Discover the Project and Configure Serving
+# MAGIC Resolve the canonical DBO_Quant namespace and configure whether to create a Model Serving endpoint, including the registered model, version, and endpoint name.
 
 # COMMAND ----------
 from pathlib import Path
@@ -23,6 +28,11 @@ dbutils.widgets.text('model_version','1')
 dbutils.widgets.text('model_endpoint_name','dbo-quant-model')
 
 # COMMAND ----------
+# MAGIC %md
+# MAGIC ## 2. Create or Skip Model Serving
+# MAGIC Show the canonical feature table and, when explicitly enabled, create a Databricks Model Serving endpoint for the configured Unity Catalog model.
+
+# COMMAND ----------
 print('Feature table:',f'{CATALOG}.{SCHEMA}.equity_features_latest')
 if dbutils.widgets.get('create_model_endpoint').lower()=='true':
     model=dbutils.widgets.get('uc_model_name').strip()
@@ -34,8 +44,13 @@ else:
 
 # COMMAND ----------
 # MAGIC %md
-# MAGIC ## Feature Serving
+# MAGIC ## 3. Feature Serving
 # MAGIC Use `serving/feature_serving_setup.py` only when low-latency online feature lookup is required. Ordinary backtests, Monte Carlo, portfolio-optimization result review, automated strategy Jobs, and the OpenBB App do not require Feature Serving.
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 4. Complete the Serving Step
+# MAGIC Record any resources created for later cleanup, then continue to the Databricks App deployment workflow.
 
 # COMMAND ----------
 print('SERVING STEP COMPLETE')

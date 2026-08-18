@@ -27,7 +27,7 @@ Serving is separate and optional.
     verify persisted data and OpenBB backend connection
 
 04_DEPLOY_APP_AUTOMATED.py
-    optional Job-driven App redeployment
+    optional Job-driven App redeployment from the workspace Git folder
 ```
 
 ## `01_SERVING.py`
@@ -52,6 +52,8 @@ It discovers the canonical DBO_Quant namespace and provides the values required 
 
 The App must have access to a Databricks SQL Warehouse and permission to read the DBO_Quant Unity Catalog schema.
 
+Deploy the existing `databricks_app/` folder from the cloned DBO_Quant workspace Git folder. The App does not need to clone GitHub separately.
+
 ## `03_OPENBB_WORKSPACE.py`
 
 Use this notebook after the Databricks App is running.
@@ -69,17 +71,31 @@ OpenBB can display persisted strategy, comparison, Monte Carlo, portfolio-optimi
 
 This notebook is intended as an optional final Lakeflow Job task.
 
-It requests a Databricks App deployment from the configured Git repository and supplies the discovered DBO_Quant catalog and schema as App environment values.
+It requests a Databricks App snapshot deployment from the existing DBO_Quant workspace Git folder and supplies the discovered DBO_Quant catalog and schema as App environment values.
+
+The deployment source is:
+
+```text
+<repo_workspace_root>/databricks_app
+```
+
+For example:
+
+```text
+/Workspace/Users/user@example.com/DBO_Quant/databricks_app
+```
 
 Prerequisites:
 
 - the Databricks App already exists;
-- its Git source is configured for this repository;
-- its SQL Warehouse resource is configured;
+- the DBO_Quant Git folder already exists in the Databricks workspace;
+- the App's SQL Warehouse resource is configured;
 - the App service principal has the required Unity Catalog permissions;
 - the Job identity has App deployment permission.
 
-The automated strategy workflow keeps this task disabled by default.
+No separate GitHub App source is required.
+
+The automated strategy workflow keeps this task disabled by default because persisted research data becomes visible to an already-running App without redeploying its source code.
 
 ## Automated research workflow
 
@@ -89,7 +105,7 @@ Use:
 notebooks/workflows/00_CONFIGURE_STRATEGY_FLOW.py
 ```
 
-for the full multi-task research workflow. When App redeployment is enabled, `04_DEPLOY_APP_AUTOMATED.py` is appended as the final task.
+for the full multi-task research workflow. When App redeployment is enabled, `04_DEPLOY_APP_AUTOMATED.py` is appended as the final task and receives the same `repo_workspace_root` used by the research notebooks.
 
 ## Cleanup
 

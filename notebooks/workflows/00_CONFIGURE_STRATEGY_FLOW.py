@@ -7,7 +7,7 @@
 # MAGIC
 # MAGIC `refresh data → selected strategy → Monte Carlo baseline → portfolio optimization (CPU) → Monte Carlo optimized allocation → persisted OpenBB results`
 # MAGIC
-# MAGIC The optimizer consumes the selected strategy's latest effective allocation/universe. Optional final step: redeploy the Databricks App from Git so OpenBB immediately sees the latest backend code. App deployment is disabled by default.
+# MAGIC The optimizer consumes the selected strategy's latest effective allocation/universe. Optional final step: redeploy the Databricks App from the same cloned DBO_Quant workspace Git folder. App deployment is disabled by default because data-only research runs do not require an App redeploy.
 
 # COMMAND ----------
 # MAGIC %md
@@ -28,7 +28,7 @@ dbutils.library.restartPython()
 # COMMAND ----------
 # MAGIC %md
 # MAGIC ## 3. Configure the Strategy Workflow
-# MAGIC Set the Job name, repository workspace path, strategy notebook, strategy parameters, optional research stages, schedule, timezone, and concurrency limit.
+# MAGIC Set the Job name, repository workspace path, strategy notebook, strategy parameters, optional research stages, schedule, timezone, and concurrency limit. The same `repo_workspace_root` is reused as the Databricks App deployment source when App redeployment is enabled.
 
 # COMMAND ----------
 import json
@@ -63,6 +63,8 @@ MAX_CONCURRENT=int(dbutils.widgets.get('max_concurrent_runs'))
 
 if not ROOT:
     raise ValueError('repo_workspace_root is required. Use the absolute Databricks workspace path of the DBO_Quant Git folder.')
+if not ROOT.startswith('/Workspace/'):
+    raise ValueError('repo_workspace_root must be an absolute Databricks workspace path beginning with /Workspace/.')
 if not JOB_NAME:
     raise ValueError('job_name is required')
 if not isinstance(STRATEGY_PARAMS,dict):
@@ -71,7 +73,7 @@ if not isinstance(STRATEGY_PARAMS,dict):
 # COMMAND ----------
 # MAGIC %md
 # MAGIC ## 4. Build the Lakeflow Task Graph
-# MAGIC Construct the ordered notebook tasks, dependencies, and task-value handoffs for ingestion, the selected strategy, baseline Monte Carlo, portfolio optimization, optimized Monte Carlo, and optional App deployment.
+# MAGIC Construct the ordered notebook tasks, dependencies, and task-value handoffs for ingestion, the selected strategy, baseline Monte Carlo, portfolio optimization, optimized Monte Carlo, and optional workspace-sourced App deployment.
 
 # COMMAND ----------
 def notebook_path(relative: str) -> str:
@@ -140,7 +142,12 @@ if INCLUDE_OPT:
         previous=['monte_carlo_optimized']
 
 if INCLUDE_APP:
-    tasks.append(notebook_task('deploy_openbb_backend','notebooks/platform/04_DEPLOY_APP_AUTOMATED.py',depends_on=previous))
+    tasks.append(notebook_task(
+        'deploy_openbb_backend',
+        'notebooks/platform/04_DEPLOY_APP_AUTOMATED.py',
+        depends_on=previous,
+        base_parameters={'repo_workspace_root':ROOT},
+    ))
     previous=['deploy_openbb_backend']
 
 settings={
@@ -193,4 +200,4 @@ print('\nRun from Workflows > Jobs, or call w.jobs.run_now(job_id=...).')
 # COMMAND ----------
 # MAGIC %md
 # MAGIC ## 6. OpenBB Test Path
-# MAGIC After a successful default run, Unity Catalog contains the strategy backtest, a Monte Carlo baseline for the strategy allocation, the CPU-default optimized allocation/frontier, and a second Monte Carlo simulation of that optimized allocation. If the DBO_Quant App is already deployed, refresh OpenBB Workspace widgets. If `include_app_deploy=true`, the final task requests a new App deployment from the repository automatically.
+# MAGIC After a successful default run, Unity Catalog contains the strategy backtest, a Monte Carlo baseline for the strategy allocation, the CPU-default optimized allocation/frontier, and a second Monte Carlo simulation of that optimized allocation. If the DBO_Quant App is already deployed, refresh OpenBB Workspace widgets; no redeployment is required for new persisted data. If `include_app_deploy=true`, the final task snapshots `databricks_app/` from the same `repo_workspace_root` used by the rest of the workflow.

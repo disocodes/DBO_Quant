@@ -37,8 +37,8 @@ print('App name:',APP_NAME)
 print('Catalog:',CATALOG)
 print('Schema:',SCHEMA)
 print('SQL Warehouse ID:',WAREHOUSE)
-print('Source folder: databricks_app/')
-print('Entrypoint: databricks_app/app_entry.py')
+print('Workspace source: <repo_workspace_root>/databricks_app')
+print('Entrypoint: app_entry.py')
 
 # COMMAND ----------
 # MAGIC %md
@@ -46,7 +46,7 @@ print('Entrypoint: databricks_app/app_entry.py')
 # MAGIC 1. Open **Apps** in Databricks and create the App.
 # MAGIC 2. Add a SQL Warehouse resource with key **`sql_warehouse`** and permission **Can use**.
 # MAGIC 3. In `databricks_app/app.yaml`, set `FINANCE_CATALOG` and `FINANCE_SCHEMA` to the values printed above.
-# MAGIC 4. Deploy the repository folder `databricks_app/`.
+# MAGIC 4. Deploy `databricks_app/` from the existing cloned DBO_Quant workspace Git folder. A separate GitHub source is not required for the App.
 # MAGIC 5. Grant the App service principal `USE CATALOG`, `USE SCHEMA`, and `SELECT` on the DBO_Quant schema.
 # MAGIC 6. Wait for **RUNNING** and copy the App URL.
 # MAGIC

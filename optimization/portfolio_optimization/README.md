@@ -1,48 +1,46 @@
-# Portfolio optimization
+# Portfolio Optimization
 
-This folder contains DBO_Quant's optional Mean-CVaR portfolio-optimization workflow.
+This folder contains the shared Mean-CVaR portfolio-optimization integration used by both Databricks and remote/on-prem execution.
 
 ## Purpose
 
-Portfolio optimization answers:
+Portfolio optimization receives an asset universe and portfolio context and calculates candidate allocations for a Mean-CVaR objective.
 
-> Given a portfolio universe and risk objective, what allocation should be considered?
-
-It does not replace backtesting or Monte Carlo. A typical decision flow is:
+It complements, rather than replaces, the other research components:
 
 ```text
-current portfolio or strategy allocation
+historical strategy or portfolio allocation
           ↓
 portfolio optimization
           ↓
 selected_optimal allocation
           ↓
-Monte Carlo forward-risk validation
+Monte Carlo validation
 ```
 
 ## Shared configuration
 
-Both Databricks and external runs read:
+Both execution routes use:
 
 ```text
 optimization/portfolio_optimization/portfolio_config.toml
 ```
 
-The committed default is CPU:
+Default solver:
 
 ```toml
 [execution]
 solver = "cpu"
 ```
 
-Supported solver modes:
+Supported modes:
 
-- `cpu` — CVXPY + CLARABEL with CPU returns/scenario generation; no GPU required.
-- `gpu` — CVXPY + NVIDIA cuOpt with GPU returns/scenario generation; requires compatible NVIDIA GPU/cuOpt/cuML packages.
+- `cpu` — CVXPY + CLARABEL with CPU return/scenario processing;
+- `gpu` — CVXPY + NVIDIA cuOpt with GPU return/scenario processing.
 
-The upstream Portfolio Optimization project supports both CVXPY and cuOpt APIs. DBO_Quant keeps those backend details inside this implementation layer rather than encoding a vendor or device in operator notebook names.
+GPU mode requires a compatible NVIDIA runtime and the corresponding cuOpt/cuML packages. GPU execution does not silently fall back to CPU.
 
-## Databricks route
+## Databricks execution
 
 Run:
 
@@ -50,26 +48,35 @@ Run:
 notebooks/portfolio/04_PORTFOLIO_OPTIMIZATION_DATABRICKS.py
 ```
 
-The notebook uses Spark/Unity Catalog directly, discovers the canonical DBO_Quant namespace, and persists results to the same tables for CPU and GPU runs.
+The notebook:
 
-A fresh CPU/serverless session installs the verified upstream package revision used by this repository before running:
+1. installs the pinned upstream Portfolio Optimization package revision required by the workflow;
+2. discovers the canonical DBO_Quant Unity Catalog namespace;
+3. resolves the portfolio or strategy allocation to optimize;
+4. loads the required price history;
+5. runs Mean-CVaR optimization;
+6. optionally runs dynamic rebalancing;
+7. persists the results to Unity Catalog;
+8. publishes `optimization_run_id` as a Databricks task value when running inside a Job.
 
-```text
-efa60ce29b7351cfda8fd4c9afb94b9d7fce482c
-```
+### Manual source
 
-Manual input defaults to `portfolio_config.toml`. The notebook can also be called with:
+Without Job parameters, the notebook uses the portfolio/symbol configuration in `portfolio_config.toml`.
+
+### Strategy-run source
+
+The notebook also accepts:
 
 ```text
 source_type = strategy_run
 source_id   = <run_id>
 ```
 
-In that mode, the latest effective strategy allocation becomes the reference portfolio and its active symbols become the optimization universe. This is the mode used by the automated strategy workflow.
+In this mode, the strategy's latest effective allocation becomes the reference portfolio and the active strategy symbols become the optimization universe.
 
-GPU mode requires compatible GPU compute plus the matching cuOpt/cuML CUDA packages; it does not silently fall back to CPU.
+This is the source mode used by the automated strategy workflow.
 
-## Remote/on-prem route
+## Remote or on-prem execution
 
 Run:
 
@@ -77,41 +84,62 @@ Run:
 optimization/portfolio_optimization/PORTFOLIO_OPTIMIZATION.ipynb
 ```
 
-The external route connects to Databricks through a SQL Warehouse. Authentication supports an existing Databricks profile or OAuth U2M browser sign-in.
+The external notebook uses a Databricks SQL Warehouse to read DBO_Quant inputs and persist results.
 
-For a reproducible CPU environment:
+Authentication supports:
 
-```bash
-git clone https://github.com/NVIDIA-AI-Blueprints/portfolio-optimization.git
-cd portfolio-optimization
-git checkout efa60ce29b7351cfda8fd4c9afb94b9d7fce482c
-uv sync --group notebooks
-```
+- an existing Databricks profile; or
+- OAuth U2M browser authentication using the workspace URL and SQL Warehouse HTTP path.
 
-Install `databricks-sdk` and `databricks-sql-connector` in the same environment for DBO_Quant read/write access.
+The canonical DBO_Quant catalog/schema is discovered after authentication unless an explicit override is supplied.
 
-For GPU execution, install the CUDA extra that matches the host, for example `--extra cuda12`, together with the notebook group. Confirm the actual CUDA/cuOpt compatibility of the target host before running.
+### CPU environment
+
+Install the upstream Portfolio Optimization package and its notebook dependencies in a Python environment with CVXPY/CLARABEL available.
+
+### GPU environment
+
+Install the CUDA extra matching the target host together with the notebook dependencies and confirm cuOpt/cuML compatibility before execution.
 
 ## Outputs
 
-Both routes write the same DBO_Quant result model:
+CPU and GPU execution write the same result model:
 
-- `optimization_runs`;
-- `efficient_frontier`;
-- `optimal_allocations`;
-- `optimization_matrix_entries`;
-- `optimization_backtest_metrics`;
-- optional `optimization_rebalance_*` tables.
+```text
+optimization_runs
+    run metadata
 
-Each successful run returns an `optimization_run_id` and, when rebalancing is enabled, a `rebalance_run_id`.
+efficient_frontier
+    Mean-CVaR frontier points
 
-Review results with:
+optimal_allocations
+    frontier allocations and selected_optimal weights
+
+optimization_matrix_entries
+    covariance matrix entries
+
+optimization_backtest_metrics
+    historical optimizer backtest metrics
+
+optimization_rebalance_runs
+optimization_rebalance_events
+optimization_rebalance_daily
+    optional dynamic-rebalancing results
+```
+
+A successful optimization returns an `optimization_run_id`. Rebalancing also returns a `rebalance_run_id` when enabled.
+
+## Review results
+
+Use:
 
 ```text
 notebooks/portfolio/03_OPTIMIZATION_RESULTS.py
 ```
 
-Validate the selected allocation with:
+for Databricks-side review.
+
+To validate the selected allocation with Monte Carlo, run:
 
 ```text
 notebooks/portfolio/02_MONTE_CARLO.py
@@ -119,4 +147,13 @@ source_type = optimization_run
 source_id   = <optimization_run_id>
 ```
 
-OpenBB Workspace can display the efficient frontier, optimized allocation chart, optimizer metrics, and rebalancing value curve after the Databricks App is deployed.
+## OpenBB outputs
+
+After the Databricks App is deployed, OpenBB Workspace can display:
+
+- Mean-CVaR efficient frontier;
+- optimized allocation chart;
+- optimization run metadata;
+- historical optimization backtest metrics;
+- optional rebalancing events;
+- optional rebalancing portfolio-value curve.

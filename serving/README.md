@@ -6,15 +6,7 @@ Serving is an optional subsystem for low-latency model inference and online feat
 
 Use `model_serving_setup.py` after a real model has been registered in Unity Catalog.
 
-Typical use cases include:
-
-- expected-return models;
-- volatility forecasts;
-- regime classifiers;
-- credit/risk models;
-- sentiment or NLP models.
-
-Persist model outputs to the canonical DBO_Quant tables when they should appear in OpenBB Workspace.
+Typical use cases include expected-return models, volatility forecasts, regime classifiers, credit/risk models, and sentiment/NLP models. Persist model outputs to the canonical DBO_Quant tables when they should appear in OpenBB Workspace.
 
 ## Feature Serving
 
@@ -29,15 +21,7 @@ Online stores and serving endpoints can create billable infrastructure, so `00_S
 
 ## What does not require Serving
 
-Serving is not required for:
-
-- strategy backtests;
-- portfolio comparisons;
-- Monte Carlo simulation;
-- NVIDIA portfolio optimization or rebalancing;
-- OpenBB visualization of persisted results.
-
-Those workflows use Unity Catalog/Delta as their system of record.
+Serving is not required for strategy backtests, portfolio comparisons, Monte Carlo simulation, portfolio optimization/rebalancing, automated strategy Jobs, or OpenBB visualization of persisted results. Those workflows use Unity Catalog/Delta as their system of record.
 
 ## Guided notebook
 

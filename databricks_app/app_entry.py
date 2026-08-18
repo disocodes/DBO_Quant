@@ -3,9 +3,18 @@
 Imports the core OpenBB/Databricks API and adds saved-portfolio and portfolio-
 optimization routes. openbb-platform-api discovers these routes automatically.
 """
+from pathlib import Path
+import sys
 from typing import Optional
 
 from fastapi import HTTPException
+
+# openbb-api loads this file with importlib.spec_from_file_location(). That loader
+# does not add this file's directory to sys.path, so make the sibling app.py module
+# importable explicitly before importing it.
+APP_DIR = Path(__file__).resolve().parent
+if str(APP_DIR) not in sys.path:
+    sys.path.insert(0, str(APP_DIR))
 
 from app import app, fq, query_records
 

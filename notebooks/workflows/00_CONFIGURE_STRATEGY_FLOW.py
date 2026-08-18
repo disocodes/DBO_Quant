@@ -28,7 +28,7 @@ dbutils.library.restartPython()
 # COMMAND ----------
 # MAGIC %md
 # MAGIC ## 3. Configure the Strategy Workflow
-# MAGIC Set the Job name, repository workspace path, strategy notebook, strategy parameters, optional research stages, schedule, timezone, and concurrency limit. The same `repo_workspace_root` is reused as the Databricks App deployment source when App redeployment is enabled.
+# MAGIC Set the Job name, repository workspace path, strategy notebook, strategy parameters, optional research stages, schedule, timezone, concurrency limit, and optional App SQL Warehouse. The same `repo_workspace_root` is reused as the Databricks App deployment source when App redeployment is enabled.
 
 # COMMAND ----------
 import json
@@ -44,6 +44,8 @@ for name,default in [
     ('include_monte_carlo','true'),
     ('include_optimization','true'),
     ('include_app_deploy','false'),
+    ('app_name','dbo-quant-api'),
+    ('app_sql_warehouse_id',''),
     ('cron_expression',''),
     ('timezone_id','Australia/Perth'),
     ('max_concurrent_runs','1'),
@@ -57,6 +59,8 @@ INCLUDE_INGEST=dbutils.widgets.get('include_ingest').lower()=='true'
 INCLUDE_MC=dbutils.widgets.get('include_monte_carlo').lower()=='true'
 INCLUDE_OPT=dbutils.widgets.get('include_optimization').lower()=='true'
 INCLUDE_APP=dbutils.widgets.get('include_app_deploy').lower()=='true'
+APP_NAME=dbutils.widgets.get('app_name').strip() or 'dbo-quant-api'
+APP_WAREHOUSE_ID=dbutils.widgets.get('app_sql_warehouse_id').strip()
 CRON=dbutils.widgets.get('cron_expression').strip()
 TIMEZONE=dbutils.widgets.get('timezone_id').strip() or 'Australia/Perth'
 MAX_CONCURRENT=int(dbutils.widgets.get('max_concurrent_runs'))
@@ -142,11 +146,17 @@ if INCLUDE_OPT:
         previous=['monte_carlo_optimized']
 
 if INCLUDE_APP:
+    app_parameters={
+        'repo_workspace_root':ROOT,
+        'app_name':APP_NAME,
+    }
+    if APP_WAREHOUSE_ID:
+        app_parameters['sql_warehouse_id']=APP_WAREHOUSE_ID
     tasks.append(notebook_task(
         'deploy_openbb_backend',
         'notebooks/platform/04_DEPLOY_APP_AUTOMATED.py',
         depends_on=previous,
-        base_parameters={'repo_workspace_root':ROOT},
+        base_parameters=app_parameters,
     ))
     previous=['deploy_openbb_backend']
 
@@ -195,9 +205,12 @@ print('job_name =',JOB_NAME)
 print('schedule =',CRON or 'manual Run now')
 print('CPU optimizer default = optimization/portfolio_optimization/portfolio_config.toml -> execution.solver = "cpu"')
 print('App deployment included =',INCLUDE_APP)
+if INCLUDE_APP:
+    print('App name =',APP_NAME)
+    print('App SQL Warehouse =',APP_WAREHOUSE_ID or 'reuse existing sql_warehouse App resource')
 print('\nRun from Workflows > Jobs, or call w.jobs.run_now(job_id=...).')
 
 # COMMAND ----------
 # MAGIC %md
 # MAGIC ## 6. OpenBB Test Path
-# MAGIC After a successful default run, Unity Catalog contains the strategy backtest, a Monte Carlo baseline for the strategy allocation, the CPU-default optimized allocation/frontier, and a second Monte Carlo simulation of that optimized allocation. If the DBO_Quant App is already deployed, refresh OpenBB Workspace widgets; no redeployment is required for new persisted data. If `include_app_deploy=true`, the final task snapshots `databricks_app/` from the same `repo_workspace_root` used by the rest of the workflow.
+# MAGIC After a successful default run, Unity Catalog contains the strategy backtest, a Monte Carlo baseline for the strategy allocation, the CPU-default optimized allocation/frontier, and a second Monte Carlo simulation of that optimized allocation. If the DBO_Quant App is already deployed, refresh OpenBB Workspace widgets; no redeployment is required for new persisted data. If `include_app_deploy=true`, the final task snapshots `databricks_app/` from the same `repo_workspace_root` and validates/configures the App's `sql_warehouse` resource.

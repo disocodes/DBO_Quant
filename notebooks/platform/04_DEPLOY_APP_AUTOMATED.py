@@ -6,6 +6,12 @@
 # MAGIC This performs a real Databricks App deployment from Git. The App must already exist and its required resources (for example the SQL Warehouse resource) must already be configured.
 
 # COMMAND ----------
+# MAGIC %pip install -q --upgrade "databricks-sdk>=0.74,<1"
+
+# COMMAND ----------
+dbutils.library.restartPython()
+
+# COMMAND ----------
 from pathlib import Path
 import sys
 repo_root=Path.cwd()

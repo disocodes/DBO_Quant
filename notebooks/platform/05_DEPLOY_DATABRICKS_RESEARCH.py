@@ -81,8 +81,55 @@ if not DASHBOARD_PARENT.startswith('/Workspace/'):
     raise ValueError(f'dashboard_parent_path must begin with /Workspace/. Got {DASHBOARD_PARENT!r}')
 if not re.fullmatch(r'[a-z0-9-]+',APP_NAME):
     raise ValueError('research_app_name must contain only lowercase letters, numbers and hyphens')
+
+w=WorkspaceClient()
+warehouse_source='sql_warehouse_id widget'
+
+# Reuse an existing Research App warehouse binding when possible. This makes
+# notebook 05 rerunnable without forcing the operator to paste the warehouse ID.
 if not WAREHOUSE_ID:
-    raise ValueError('sql_warehouse_id is required for the AI/BI dashboard and Research App')
+    try:
+        existing_app_for_warehouse=w.apps.get(name=APP_NAME)
+    except Exception:
+        existing_app_for_warehouse=None
+
+    if existing_app_for_warehouse is not None:
+        for resource in (existing_app_for_warehouse.resources or []):
+            resource_dict=resource.as_dict() if hasattr(resource,'as_dict') else resource
+            if resource_dict.get('name')=='sql_warehouse':
+                configured=resource_dict.get('sql_warehouse') or {}
+                WAREHOUSE_ID=str(configured.get('id') or '').strip()
+                if WAREHOUSE_ID:
+                    warehouse_source=f'existing App resource {APP_NAME}/sql_warehouse'
+                    break
+
+# If the Research App is new, automatically use the warehouse only when the
+# current identity can see exactly one SQL warehouse. Never guess among several.
+if not WAREHOUSE_ID:
+    accessible_warehouses=list(w.warehouses.list())
+    warehouse_rows=[]
+    for warehouse in accessible_warehouses:
+        warehouse_id=str(getattr(warehouse,'id',None) or '').strip()
+        if not warehouse_id:
+            continue
+        name=str(getattr(warehouse,'name',None) or '')
+        state=getattr(warehouse,'state',None)
+        warehouse_rows.append((warehouse_id,name,str(state or '')))
+
+    if len(warehouse_rows)==1:
+        WAREHOUSE_ID=warehouse_rows[0][0]
+        warehouse_source='only accessible SQL warehouse'
+    elif not warehouse_rows:
+        raise ValueError(
+            'No accessible Databricks SQL Warehouse was found. Create or obtain CAN USE on a SQL Warehouse, '
+            'then rerun this notebook. You do not need to rerun 00_SETUP.py.'
+        )
+    else:
+        display(spark.createDataFrame(warehouse_rows,['warehouse_id','warehouse_name','state']))
+        raise ValueError(
+            'Multiple SQL Warehouses are accessible. Copy the warehouse_id you want from the table above into '
+            'the sql_warehouse_id widget and rerun notebook 05. You do not need to rerun 00_SETUP.py.'
+        )
 
 SOURCE_CODE_PATH=f'{WORKSPACE_ROOT}/research_app'
 print('Namespace:',location.namespace)
@@ -90,6 +137,7 @@ print('Workspace repository:',WORKSPACE_ROOT)
 print('Research App source:',SOURCE_CODE_PATH)
 print('Dashboard:',DASHBOARD_NAME)
 print('SQL Warehouse:',WAREHOUSE_ID)
+print('SQL Warehouse selection:',warehouse_source)
 
 # COMMAND ----------
 # MAGIC %md
@@ -139,7 +187,6 @@ display(spark.createDataFrame(validation,['dataset','status','rows_or_error']))
 # MAGIC Reuse the existing dashboard ID when exactly one dashboard with the requested name exists; otherwise create it. Publishing uses the selected SQL Warehouse and does not embed the notebook user's credentials.
 
 # COMMAND ----------
-w=WorkspaceClient()
 serialized=json.dumps(dashboard_definition,separators=(',',':'))
 existing=[d for d in w.lakeview.list() if (d.display_name or '').casefold()==DASHBOARD_NAME.casefold()]
 if len(existing)>1:

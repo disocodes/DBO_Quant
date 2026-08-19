@@ -24,7 +24,7 @@ Serving is separate and optional.
     direct App deploy/redeploy from the cloned workspace directory
 
 03_OPENBB_WORKSPACE.py
-    verify persisted data and OpenBB backend connection
+    verify persisted data, SQL connectivity, widget forms, and OpenBB backend connection
 
 04_DEPLOY_APP_AUTOMATED.py
     optional Job-driven App redeployment from the cloned workspace directory
@@ -45,11 +45,13 @@ It:
 - discovers the canonical DBO_Quant Unity Catalog namespace;
 - locates the current cloned DBO_Quant workspace root;
 - validates or configures the App's `sql_warehouse` resource;
+- reads the App's dedicated service-principal client ID;
+- grants that principal `USE CATALOG`, `USE SCHEMA`, and schema-level `SELECT` on the dedicated DBO_Quant namespace;
 - deploys `<repo_workspace_root>/databricks_app` with `mode=SNAPSHOT`;
 - sends no Git URL, Git branch, or `git_source` in the deployment request;
 - prints the OpenBB backend URL.
 
-The Databricks App must already exist. The App service principal must have `CAN USE` on the SQL Warehouse plus `USE CATALOG`, `USE SCHEMA`, and `SELECT` on the DBO_Quant namespace.
+The Databricks App must already exist. The notebook identity must be able to manage the relevant Unity Catalog privileges in order to apply the App grants. The App service principal needs `CAN USE` on the SQL Warehouse plus `USE CATALOG`, `USE SCHEMA`, and `SELECT` on the DBO_Quant namespace.
 
 This notebook is the preferred manual redeploy path. Do not rely on an old Git-backed deployment source remembered by the Databricks Apps UI.
 
@@ -57,13 +59,22 @@ This notebook is the preferred manual redeploy path. Do not rely on an old Git-b
 
 Use this notebook after the Databricks App is running.
 
-It discovers the canonical DBO_Quant namespace, checks the main persisted result tables, prints the App backend URL expected by OpenBB Workspace, and documents the OpenBB custom-backend connection values.
+It discovers the canonical DBO_Quant namespace, checks the main persisted result tables, generates an App-scoped OAuth token, and tests four distinct layers:
+
+1. OpenBB `/api/widgets.json` discovery;
+2. App `/api/quant/health` without SQL;
+3. `/api/quant/sql-health`, which executes a minimal SQL query through the App's configured warehouse without reading a DBO_Quant table;
+4. `/api/quant/backtests/runs`, which verifies the App service principal can read persisted strategy results from Unity Catalog.
+
+This separation makes a SQL timeout actionable: if `sql-health` fails, investigate the warehouse resource, `CAN_USE`, warehouse availability/cold start, or SQL connector authentication. If `sql-health` succeeds but `backtests/runs` fails, investigate Unity Catalog grants and the target table.
+
+The notebook also inspects the three form-enabled widgets — **Strategy Runs**, **Portfolio Comparison Runs**, and **Monte Carlo Runs**. The backend retains OpenBB's generated nested `type=form` input while removing the build-only top-level `form_endpoint` directive from the final discovery payload because Workspace rejects that top-level field.
 
 ## `04_DEPLOY_APP_AUTOMATED.py`
 
 This notebook is intended as an optional final Lakeflow Job task.
 
-It performs the same workspace-snapshot deployment as `02_DEPLOY_APP.py`. The notebook auto-detects the cloned DBO_Quant workspace root when run directly and also accepts `repo_workspace_root` from the automated workflow.
+It performs the same workspace-snapshot deployment and App service-principal Unity Catalog grant setup as `02_DEPLOY_APP.py`. The notebook auto-detects the cloned DBO_Quant workspace root when run directly and also accepts `repo_workspace_root` from the automated workflow.
 
 The deployment source is always:
 

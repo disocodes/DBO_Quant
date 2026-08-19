@@ -114,7 +114,41 @@ else:
 
 # COMMAND ----------
 # MAGIC %md
-# MAGIC ## 5. Request the Workspace-Sourced Deployment
+# MAGIC ## 5. Grant the App Service Principal Read Access
+# MAGIC A SQL Warehouse resource grants compute access but not Unity Catalog table access. Grant the App service principal read access to the dedicated DBO_Quant schema before the deployment is requested.
+
+# COMMAND ----------
+APP_SERVICE_PRINCIPAL=str(getattr(app,'service_principal_client_id',None) or '').strip()
+if not APP_SERVICE_PRINCIPAL:
+    raise RuntimeError(
+        f"Databricks App {APP_NAME!r} does not expose service_principal_client_id; cannot configure Unity Catalog grants automatically."
+    )
+
+
+def _sql_identifier(value:str)->str:
+    return '`'+value.replace('`','``')+'`'
+
+principal_sql=_sql_identifier(APP_SERVICE_PRINCIPAL)
+catalog_sql=_sql_identifier(CATALOG)
+schema_sql=f'{catalog_sql}.{_sql_identifier(SCHEMA)}'
+
+try:
+    spark.sql(f'GRANT USE CATALOG ON CATALOG {catalog_sql} TO {principal_sql}')
+    spark.sql(f'GRANT USE SCHEMA ON SCHEMA {schema_sql} TO {principal_sql}')
+    spark.sql(f'GRANT SELECT ON SCHEMA {schema_sql} TO {principal_sql}')
+except Exception as exc:
+    raise RuntimeError(
+        'Could not grant the Databricks App service principal read access to the DBO_Quant schema. '
+        'The workflow identity must own/manage the catalog/schema or an administrator must grant USE CATALOG, USE SCHEMA, and SELECT.'
+    ) from exc
+
+print('App service principal:',APP_SERVICE_PRINCIPAL)
+print('Granted USE CATALOG:',CATALOG)
+print('Granted USE SCHEMA + SELECT:',location.namespace)
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 6. Request the Workspace-Sourced Deployment
 # MAGIC Snapshot the cloned `databricks_app/` workspace directory and supply the SQL Warehouse resource binding plus the canonical catalog/schema as runtime environment variables. The request intentionally contains no `git_source`.
 
 # COMMAND ----------
@@ -144,7 +178,7 @@ print('Deployment response:',response)
 
 # COMMAND ----------
 # MAGIC %md
-# MAGIC ## 6. Publish the App URL for Downstream Use
+# MAGIC ## 7. Publish the App URL for Downstream Use
 # MAGIC Read the App after the deployment request, print its OpenBB backend URL when available, and publish the URL as a Databricks task value for downstream workflow tasks.
 
 # COMMAND ----------

@@ -3,7 +3,7 @@
 # MAGIC # Platform — Automated App Deployment
 # MAGIC Optional final task for an automated research workflow.
 # MAGIC
-# MAGIC This deploys the Databricks App from the existing DBO_Quant workspace Git folder. It also validates the required SQL Warehouse App resource before requesting deployment.
+# MAGIC This deploys the Databricks App from the existing cloned DBO_Quant workspace directory. It does not use a Git URL, Git branch, or Git-backed App source.
 
 # COMMAND ----------
 # MAGIC %md
@@ -23,41 +23,50 @@ dbutils.library.restartPython()
 
 # COMMAND ----------
 # MAGIC %md
-# MAGIC ## 3. Discover the Project and Configure the Workspace Source
-# MAGIC Resolve the canonical DBO_Quant namespace and configure the existing App name, workspace source folder, and SQL Warehouse used by the App backend.
+# MAGIC ## 3. Discover the Project and Workspace App Source
+# MAGIC Resolve the canonical DBO_Quant namespace and automatically locate `databricks_app/` in the current cloned workspace repository. `repo_workspace_root` can still override the detected path when the notebook is invoked by a workflow.
 
 # COMMAND ----------
 from pathlib import Path
 import sys
+
 repo_root=Path.cwd()
-for c in [repo_root,*repo_root.parents]:
-    if (c/'src'/'quant_platform').exists(): repo_root=c; break
+for candidate in [repo_root,*repo_root.parents]:
+    if (candidate/'src'/'quant_platform').exists() and (candidate/'databricks_app').exists():
+        repo_root=candidate
+        break
+else:
+    raise RuntimeError('Could not locate the cloned DBO_Quant workspace root containing src/quant_platform and databricks_app/.')
+
 sys.path.insert(0,str(repo_root/'src'))
 from quant_platform.location import discover_with_spark
 from databricks.sdk import WorkspaceClient
 
 location=discover_with_spark(spark)
 CATALOG,SCHEMA=location.catalog,location.schema
+DETECTED_WORKSPACE_ROOT=str(repo_root).rstrip('/')
+
 for name,default in [
     ('app_name','dbo-quant-api'),
-    ('repo_workspace_root',''),
-    ('app_source_path','databricks_app'),
+    ('repo_workspace_root',DETECTED_WORKSPACE_ROOT),
     ('sql_warehouse_id',''),
-]: dbutils.widgets.text(name,default)
+]:
+    dbutils.widgets.text(name,default)
 
-APP_NAME=dbutils.widgets.get('app_name').strip()
-WORKSPACE_ROOT=dbutils.widgets.get('repo_workspace_root').strip().rstrip('/')
-APP_SOURCE=dbutils.widgets.get('app_source_path').strip().strip('/')
+APP_NAME=dbutils.widgets.get('app_name').strip() or 'dbo-quant-api'
+WORKSPACE_ROOT=dbutils.widgets.get('repo_workspace_root').strip().rstrip('/') or DETECTED_WORKSPACE_ROOT
 WAREHOUSE_ID=dbutils.widgets.get('sql_warehouse_id').strip()
 
-if not WORKSPACE_ROOT:
-    raise ValueError('repo_workspace_root is required. Use the absolute Databricks workspace path of the cloned DBO_Quant Git folder.')
 if not WORKSPACE_ROOT.startswith('/Workspace/'):
-    raise ValueError('repo_workspace_root must be an absolute Databricks workspace path beginning with /Workspace/.')
-if not APP_SOURCE:
-    raise ValueError('app_source_path is required')
+    raise ValueError(
+        f'repo_workspace_root must be an absolute Databricks workspace path beginning with /Workspace/. Detected: {WORKSPACE_ROOT!r}'
+    )
 
-SOURCE_CODE_PATH=f'{WORKSPACE_ROOT}/{APP_SOURCE}'
+SOURCE_CODE_PATH=f'{WORKSPACE_ROOT}/databricks_app'
+
+print('Canonical DBO_Quant namespace:',location.namespace)
+print('Workspace repository root:',WORKSPACE_ROOT)
+print('App deployment source:',SOURCE_CODE_PATH)
 
 # COMMAND ----------
 # MAGIC %md
@@ -106,13 +115,13 @@ else:
 # COMMAND ----------
 # MAGIC %md
 # MAGIC ## 5. Request the Workspace-Sourced Deployment
-# MAGIC Snapshot the already-cloned `databricks_app/` workspace folder and supply the SQL Warehouse resource binding plus the canonical catalog/schema as runtime environment variables.
+# MAGIC Snapshot the cloned `databricks_app/` workspace directory and supply the SQL Warehouse resource binding plus the canonical catalog/schema as runtime environment variables. The request intentionally contains no `git_source`.
 
 # COMMAND ----------
 body={
-    'source_code_path': SOURCE_CODE_PATH,
-    'mode': 'SNAPSHOT',
-    'env_vars': [
+    'source_code_path':SOURCE_CODE_PATH,
+    'mode':'SNAPSHOT',
+    'env_vars':[
         {'name':'DATABRICKS_WAREHOUSE_ID','value_from':'sql_warehouse'},
         {'name':'FINANCE_CATALOG','value':CATALOG},
         {'name':'FINANCE_SCHEMA','value':SCHEMA},
@@ -120,7 +129,9 @@ body={
 }
 
 print('App:',APP_NAME)
+print('Deployment mode: SNAPSHOT')
 print('Workspace source:',SOURCE_CODE_PATH)
+print('Git source: NONE')
 print('DBO_Quant namespace:',location.namespace)
 print('Runtime SQL warehouse binding: sql_warehouse -> DATABRICKS_WAREHOUSE_ID')
 

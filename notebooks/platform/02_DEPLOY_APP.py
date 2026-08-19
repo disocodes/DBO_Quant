@@ -112,7 +112,41 @@ else:
 
 # COMMAND ----------
 # MAGIC %md
-# MAGIC ## 5. Deploy the Workspace Snapshot
+# MAGIC ## 5. Grant the App Service Principal Read Access
+# MAGIC The SQL Warehouse resource only permits the App to use compute. The App also runs as its own service principal, so grant that principal read access to the dedicated DBO_Quant Unity Catalog schema.
+
+# COMMAND ----------
+APP_SERVICE_PRINCIPAL=str(getattr(app,'service_principal_client_id',None) or '').strip()
+if not APP_SERVICE_PRINCIPAL:
+    raise RuntimeError(
+        f"Databricks App {APP_NAME!r} does not expose service_principal_client_id; cannot configure Unity Catalog grants automatically."
+    )
+
+
+def _sql_identifier(value:str)->str:
+    return '`'+value.replace('`','``')+'`'
+
+principal_sql=_sql_identifier(APP_SERVICE_PRINCIPAL)
+catalog_sql=_sql_identifier(CATALOG)
+schema_sql=f'{catalog_sql}.{_sql_identifier(SCHEMA)}'
+
+try:
+    spark.sql(f'GRANT USE CATALOG ON CATALOG {catalog_sql} TO {principal_sql}')
+    spark.sql(f'GRANT USE SCHEMA ON SCHEMA {schema_sql} TO {principal_sql}')
+    spark.sql(f'GRANT SELECT ON SCHEMA {schema_sql} TO {principal_sql}')
+except Exception as exc:
+    raise RuntimeError(
+        'Could not grant the Databricks App service principal read access to the DBO_Quant schema. '
+        'The notebook user must own/manage the catalog/schema or an administrator must grant USE CATALOG, USE SCHEMA, and SELECT.'
+    ) from exc
+
+print('App service principal:',APP_SERVICE_PRINCIPAL)
+print('Granted USE CATALOG:',CATALOG)
+print('Granted USE SCHEMA + SELECT:',location.namespace)
+
+# COMMAND ----------
+# MAGIC %md
+# MAGIC ## 6. Deploy the Workspace Snapshot
 # MAGIC Deploy a snapshot of the cloned workspace `databricks_app/` directory. The request intentionally contains no `git_source`, Git URL, or branch, so this deployment switches/redeploys the App from workspace files only.
 
 # COMMAND ----------
@@ -140,7 +174,7 @@ print('Deployment response:',response)
 
 # COMMAND ----------
 # MAGIC %md
-# MAGIC ## 6. Publish the Backend URL
+# MAGIC ## 7. Publish the Backend URL
 # MAGIC Read the App after requesting deployment and print the URL used by OpenBB Workspace.
 
 # COMMAND ----------

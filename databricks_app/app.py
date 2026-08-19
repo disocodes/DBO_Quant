@@ -148,7 +148,17 @@ def _workspace_widget_definitions() -> dict[str,Any]:
     openapi=app.openapi()
     try: definitions=build_json(openapi,["/api/widgets.json","/api/apps.json"])
     except TypeError: definitions=build_json(openapi)
-    return _strip_databricks_api_prefix(definitions)
+    definitions=_strip_databricks_api_prefix(definitions)
+    # `form_endpoint` is a build-time OpenBB directive. openbb-platform-api uses
+    # it to create the nested `type=form` parameter, but current Workspace
+    # validation rejects the directive when it is also copied into the emitted
+    # top-level widget object. Keep the generated form parameter and remove only
+    # the generator-only top-level key from the discovery payload.
+    if isinstance(definitions,dict):
+        for widget in definitions.values():
+            if isinstance(widget,dict):
+                widget.pop("form_endpoint",None)
+    return definitions
 
 @app.get("/api/widgets.json",include_in_schema=False)
 async def api_widgets_json()->dict[str,Any]:
@@ -163,6 +173,12 @@ async def api_apps_json()->list[dict[str,Any]]:
 @app.get("/api/quant/health",openapi_extra={"widget_config":{"exclude":True}})
 def quant_health()->dict:
     return {"status":"ok","architecture":"OpenBB ODP + Databricks lakehouse/serving/jobs + OpenBB Workspace","catalog":CATALOG,"schema":SCHEMA}
+
+@app.get("/api/quant/sql-health",openapi_extra={"widget_config":{"exclude":True}})
+def quant_sql_health()->dict:
+    rows=query_records("SELECT current_user() AS current_user, 1 AS ok")
+    row=rows[0] if rows else {}
+    return {"status":"ok","warehouse_id":WAREHOUSE_ID,"current_user":row.get("current_user"),"query_ok":row.get("ok")}
 
 @app.get("/api/quant/backtests/runs",openapi_extra={"widget_config":{"name":"Strategy Runs","category":"Quant Research","form_endpoint":"/api/quant/jobs/backtest"}})
 def strategy_runs(limit:int=100)->list[dict]:

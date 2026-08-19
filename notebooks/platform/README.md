@@ -1,18 +1,16 @@
 # Platform Notebooks
 
-This folder contains the optional Databricks infrastructure notebooks used to expose persisted DBO_Quant research through OpenBB Workspace and, when required, Databricks Serving.
+This folder contains DBO_Quant presentation and optional serving deployment notebooks.
 
-## Platform flow
+The **primary analyst environment is now Databricks-native**:
 
 ```text
-Unity Catalog research results
-        ↓
-Databricks App
-        ↓
-OpenBB Workspace
+Unity Catalog / Delta
+       ├────────→ AI/BI Dashboard
+       └────────→ DBO_Quant Research App
 ```
 
-Serving is separate and optional.
+OpenBB Workspace remains an optional compatibility path. Serving remains separate and optional.
 
 ## Notebook map
 
@@ -21,82 +19,149 @@ Serving is separate and optional.
     optional Model Serving / Feature Serving setup
 
 02_DEPLOY_APP.py
-    direct App deploy/redeploy from the cloned workspace directory
+    optional OpenBB backend manual deployment
 
 03_OPENBB_WORKSPACE.py
-    verify persisted data and OpenBB backend connection
+    optional OpenBB backend / Workspace validation
 
 04_DEPLOY_APP_AUTOMATED.py
-    optional Job-driven App redeployment from the cloned workspace directory
+    optional OpenBB backend Job-driven redeployment
+
+05_DEPLOY_DATABRICKS_RESEARCH.py
+    PRIMARY: create/update AI/BI research dashboard + native Research App
 ```
+
+## `05_DEPLOY_DATABRICKS_RESEARCH.py` — primary UI deployment
+
+Use this notebook to deploy DBO_Quant as a Databricks-native research environment.
+
+It:
+
+- discovers the canonical DBO_Quant Unity Catalog namespace;
+- uses the **existing cloned workspace repository** as the only application source;
+- creates/updates the versioned presentation views in `sql/research_dashboard_views.sql`;
+- builds the dashboard definition from `dashboards/research_dashboard.py`;
+- runs every AI/BI dataset query before dashboard creation/update;
+- creates or updates the `DBO_Quant Research` AI/BI dashboard while preserving its dashboard ID on updates;
+- optionally publishes the dashboard against the selected SQL Warehouse without embedding the notebook user's credentials;
+- creates/reuses the `dbo-quant-research` Databricks App;
+- grants its service principal read access to the DBO_Quant schema;
+- attaches the SQL Warehouse with `CAN_USE`;
+- optionally attaches configured Lakeflow Jobs with `CAN_MANAGE_RUN`;
+- deploys `<repo_workspace_root>/research_app` as a workspace snapshot.
+
+The dashboard pages are:
+
+```text
+Overview
+Strategy Lab
+Portfolio Lab
+Risk & Monte Carlo
+Models & Signals
+```
+
+The Research App provides those same research domains with richer run selection and a **Run Research** surface for backtest, Monte Carlo, comparison, and optimization Jobs. Job controls are enabled only for Job IDs configured during deployment.
+
+The App is read-only against Unity Catalog. Research writes continue to happen through the existing notebooks/workers and Lakeflow Jobs.
+
+### Required deployment inputs
+
+At minimum set:
+
+```text
+sql_warehouse_id
+```
+
+The notebook auto-detects the cloned repository root when run from inside DBO_Quant. Override `repo_workspace_root` only when required; it must be an absolute `/Workspace/...` path.
+
+Optional Job resource inputs:
+
+```text
+backtest_job_id
+monte_carlo_job_id
+comparison_job_id
+optimization_job_id
+```
+
+When omitted, dashboard deployment and read-only App analysis still work; the corresponding run buttons are disabled.
+
+### Source rule
+
+The Research App deployment source is always:
+
+```text
+<repo_workspace_root>/research_app
+```
+
+No Git URL, branch, `git_source`, or secondary repository clone is supplied to the App deployment API.
+
+## Databricks-native automated workflow
+
+Use:
+
+```text
+notebooks/workflows/01_CONFIGURE_DATABRICKS_RESEARCH_FLOW.py
+```
+
+Default flow:
+
+```text
+refresh data
+   ↓
+selected strategy
+   ↓
+Monte Carlo baseline
+   ↓
+portfolio optimization — CPU default
+   ↓
+Monte Carlo optimized allocation
+   ↓
+Unity Catalog
+```
+
+The AI/BI dashboard and running Research App read new persisted results directly, so `include_research_ui_deploy` is disabled by default. Enable it only when dashboard/App code itself needs deployment.
 
 ## `01_SERVING.py`
 
 Use this notebook only when DBO_Quant needs low-latency model inference or online feature lookup.
 
-Serving is not required for strategy backtests, strategy comparisons, Monte Carlo simulation, portfolio optimization, rebalancing research, Lakeflow strategy Jobs, or OpenBB display of already-persisted research results.
+Serving is not required for strategy backtests, comparisons, Monte Carlo, portfolio optimization, rebalancing, Lakeflow Jobs, AI/BI dashboards, the Research App, or OpenBB display of persisted results.
 
-## `02_DEPLOY_APP.py`
+## Optional OpenBB compatibility path
 
-Use this notebook for a manual App deploy or redeploy.
+The OpenBB backend under `databricks_app/` and notebooks 02–04 remain supported but are no longer the primary presentation layer.
 
-It:
+### `02_DEPLOY_APP.py`
 
-- discovers the canonical DBO_Quant Unity Catalog namespace;
-- locates the current cloned DBO_Quant workspace root;
-- validates or configures the App's `sql_warehouse` resource;
-- deploys `<repo_workspace_root>/databricks_app` with `mode=SNAPSHOT`;
-- sends no Git URL, Git branch, or `git_source` in the deployment request;
-- prints the OpenBB backend URL.
-
-The Databricks App must already exist. The App service principal must have `CAN USE` on the SQL Warehouse plus `USE CATALOG`, `USE SCHEMA`, and `SELECT` on the DBO_Quant namespace.
-
-This notebook is the preferred manual redeploy path. Do not rely on an old Git-backed deployment source remembered by the Databricks Apps UI.
-
-## `03_OPENBB_WORKSPACE.py`
-
-Use this notebook after the Databricks App is running.
-
-It discovers the canonical DBO_Quant namespace, checks the main persisted result tables, prints the App backend URL expected by OpenBB Workspace, and documents the OpenBB custom-backend connection values.
-
-## `04_DEPLOY_APP_AUTOMATED.py`
-
-This notebook is intended as an optional final Lakeflow Job task.
-
-It performs the same workspace-snapshot deployment as `02_DEPLOY_APP.py`. The notebook auto-detects the cloned DBO_Quant workspace root when run directly and also accepts `repo_workspace_root` from the automated workflow.
-
-The deployment source is always:
+Manual OpenBB backend deployment. It discovers the canonical namespace, configures the App SQL Warehouse resource, grants the App service principal `USE CATALOG`, `USE SCHEMA`, and schema-level `SELECT`, and snapshots:
 
 ```text
 <repo_workspace_root>/databricks_app
 ```
 
-Example:
+No Git URL or independent App checkout is used.
 
-```text
-/Workspace/Users/user@example.com/DBO_Quant/databricks_app
-```
+### `03_OPENBB_WORKSPACE.py`
 
-The deployment API body uses:
+OpenBB-specific validation. It separates:
 
-```text
-source_code_path = <repo_workspace_root>/databricks_app
-mode = SNAPSHOT
-```
+1. widget discovery;
+2. non-SQL App health;
+3. SQL Warehouse connectivity;
+4. Unity Catalog strategy-table access;
+5. form-widget metadata validation.
 
-No Git URL, Git branch, or `git_source` is supplied.
+Use this only when OpenBB Workspace is being used as an additional client.
 
-App redeployment is not required for ordinary data-only research runs because the already-running App reads new persisted results from Unity Catalog.
+### `04_DEPLOY_APP_AUTOMATED.py`
 
-## Automated research workflow
+Optional final Lakeflow task for redeploying the OpenBB backend from the same cloned workspace repository. Ordinary data-only runs do not require an OpenBB App redeploy.
 
-Use:
+The original OpenBB-compatible automated workflow remains available at:
 
 ```text
 notebooks/workflows/00_CONFIGURE_STRATEGY_FLOW.py
 ```
-
-for the full multi-task research workflow. When App redeployment is enabled, `04_DEPLOY_APP_AUTOMATED.py` is appended as the final task and receives the same `repo_workspace_root` used by the research notebooks.
 
 ## Cleanup
 
@@ -106,4 +171,4 @@ Use:
 notebooks/99_CLEANUP.py
 ```
 
-and explicitly provide the App name, Job IDs, Serving endpoint names, or Online Feature Store name that should be removed.
+and explicitly provide the App names, Job IDs, Serving endpoint names, or Online Feature Store name that should be removed. AI/BI dashboard deletion is intentionally not implicit; manage the dashboard separately so cleanup cannot silently destroy a shared research presentation.
